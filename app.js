@@ -40,12 +40,39 @@
     scale: 1,
     tx: 0,
     ty: 0,
+    targetScale: 1,
+    targetTx: 0,
+    targetTy: 0,
     stack: [{ code: ROOT_CODE, name: '全国' }],
     currentData: null,
     regions: [],
     darts: [],
     continuousFire: false,
   };
+
+  let rafHandle = null;
+  function renderLoop() {
+    const ds = state.targetScale - state.scale;
+    const dx = state.targetTx - state.tx;
+    const dy = state.targetTy - state.ty;
+    if (Math.abs(ds) < 0.0005 && Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
+      state.scale = state.targetScale;
+      state.tx = state.targetTx;
+      state.ty = state.targetTy;
+      applyTransform();
+      rafHandle = null;
+      return;
+    }
+    const k = 0.22;
+    state.scale += ds * k;
+    state.tx += dx * k;
+    state.ty += dy * k;
+    applyTransform();
+    rafHandle = requestAnimationFrame(renderLoop);
+  }
+  function scheduleRender() {
+    if (rafHandle == null) rafHandle = requestAnimationFrame(renderLoop);
+  }
 
   const boundaryCache = window.__BOUNDARY_DATA__ || (window.__BOUNDARY_DATA__ = Object.create(null));
   const boundaryPromises = new Map();
@@ -110,6 +137,18 @@
     state.scale = 1;
     state.tx = 0;
     state.ty = 0;
+    state.targetScale = 1;
+    state.targetTx = 0;
+    state.targetTy = 0;
+    if (rafHandle != null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
+    applyTransform();
+  }
+
+  function snapTransform() {
+    state.scale = state.targetScale;
+    state.tx = state.targetTx;
+    state.ty = state.targetTy;
+    if (rafHandle != null) { cancelAnimationFrame(rafHandle); rafHandle = null; }
     applyTransform();
   }
 
@@ -803,16 +842,16 @@
   function setupZoom() {
     stage.addEventListener('wheel', (event) => {
       event.preventDefault();
-      const delta = -event.deltaY * 0.001;
-      const oldScale = state.scale;
-      state.scale = Math.max(0.5, Math.min(4, state.scale * (1 + delta)));
+      const delta = -event.deltaY * 0.0018;
+      const oldTarget = state.targetScale;
+      state.targetScale = Math.max(0.5, Math.min(4, oldTarget * (1 + delta)));
       const rect = stage.getBoundingClientRect();
       const mx = event.clientX - rect.left - rect.width / 2;
       const my = event.clientY - rect.top - rect.height / 2;
-      const factor = state.scale / oldScale;
-      state.tx = mx - (mx - state.tx) * factor;
-      state.ty = my - (my - state.ty) * factor;
-      applyTransform();
+      const factor = state.targetScale / oldTarget;
+      state.targetTx = mx - (mx - state.targetTx) * factor;
+      state.targetTy = my - (my - state.targetTy) * factor;
+      scheduleRender();
     }, { passive: false });
 
     let dragging = false;
@@ -825,12 +864,17 @@
       lastX = event.clientX;
       lastY = event.clientY;
       stage.classList.add('dragging');
+      snapTransform();
     });
 
     window.addEventListener('mousemove', (event) => {
       if (!dragging) return;
-      state.tx += event.clientX - lastX;
-      state.ty += event.clientY - lastY;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      state.tx += dx;
+      state.ty += dy;
+      state.targetTx = state.tx;
+      state.targetTy = state.ty;
       lastX = event.clientX;
       lastY = event.clientY;
       applyTransform();
@@ -842,12 +886,12 @@
     });
 
     document.getElementById('zoom-in').onclick = () => {
-      state.scale = Math.min(4, state.scale * 1.2);
-      applyTransform();
+      state.targetScale = Math.min(4, state.targetScale * 1.2);
+      scheduleRender();
     };
     document.getElementById('zoom-out').onclick = () => {
-      state.scale = Math.max(0.5, state.scale / 1.2);
-      applyTransform();
+      state.targetScale = Math.max(0.5, state.targetScale / 1.2);
+      scheduleRender();
     };
     document.getElementById('zoom-reset').onclick = resetTransform;
   }
