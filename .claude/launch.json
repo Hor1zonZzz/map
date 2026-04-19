@@ -10,14 +10,16 @@
     {
       "name": "npx-serve",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "serve", ".", "-l", "3000"],
-      "port": 3000
+      "runtimeArgs": ["-y", "serve", "."],
+      "port": 3000,
+      "autoPort": true
     },
     {
       "name": "npx-http-server",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "http-server", ".", "-p", "8080"],
-      "port": 8080
+      "runtimeArgs": ["-y", "http-server", "."],
+      "port": 8080,
+      "autoPort": true
     }
   ]
 }

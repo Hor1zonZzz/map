@@ -431,6 +431,7 @@ body {
   stroke: rgba(60, 40, 20, 0.38);
   stroke-width: 0.42;
   stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
 }
 
 .province-top {
@@ -439,6 +440,7 @@ body {
   stroke-linejoin: round;
   cursor: pointer;
   transition: filter 0.18s ease, transform 0.18s ease;
+  vector-effect: non-scaling-stroke;
 }
 
 .province-top:hover {
@@ -455,6 +457,9 @@ body {
   stroke: rgba(241, 228, 199, 0.85);
   stroke-width: 3px;
   letter-spacing: 0.5px;
+  transform: scale(calc(1 / var(--zoom, 1)));
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 .zoom-ctrl {
@@ -488,6 +493,80 @@ body {
   font-family: 'Courier New', monospace;
   font-size: 10px;
   color: var(--ink-soft);
+}
+
+.dart-panel {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(180deg, rgba(241, 228, 199, 0.96), rgba(230, 210, 168, 0.96));
+  border: 1px solid var(--ink-soft);
+  border-radius: 3px;
+  box-shadow:
+    0 8px 20px rgba(40, 25, 10, 0.28),
+    inset 0 0 0 3px var(--paper),
+    inset 0 0 0 4px var(--ink-soft);
+  z-index: 12;
+}
+
+.dart-btn {
+  padding: 9px 16px;
+  border: none;
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
+  font-size: 14px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink-soft);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.dart-btn:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--ink-soft);
+}
+
+.dart-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink-soft);
+}
+
+.dart-btn.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--ink-soft);
+  box-shadow: none;
+}
+
+.dart-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.dart-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 8;
+}
+
+.dart {
+  position: absolute;
+  transform-origin: center center;
+  will-change: transform, opacity;
+}
+
+.dart svg {
+  display: block;
+  overflow: visible;
 }
 
 .info-card {

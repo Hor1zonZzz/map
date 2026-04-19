@@ -61,7 +61,7 @@
     </div>
     <div class="tweak-row">
       <label>高度夸张程度 <span class="val" id="tw-height-val">1.0x</span></label>
-      <input type="range" id="tw-height" min="0.5" max="2.5" step="0.1">
+      <input type="range" id="tw-height" min="0" max="2.5" step="0.1">
     </div>
     <div class="tweak-row">
       <label>配色主题</label>
@@ -91,6 +91,15 @@
   </div>
 
   <div class="info-card" id="info-card" style="display:none"></div>
+
+  <div class="dart-layer" id="dart-layer"></div>
+
+  <div class="dart-panel">
+    <button class="dart-btn" id="fire-dart">🎯 发 射 飞 镖</button>
+    <button class="dart-btn" id="continuous-fire">⚡ 一 键 深 入</button>
+    <button class="dart-btn secondary" id="stop-fire" disabled>停 止</button>
+    <button class="dart-btn secondary" id="clear-darts">清 除</button>
+  </div>
 
   <script src="data/boundary-manifest.js"></script>
   <script src="app.js"></script>

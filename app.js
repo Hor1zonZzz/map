@@ -43,6 +43,8 @@
     stack: [{ code: ROOT_CODE, name: '全国' }],
     currentData: null,
     regions: [],
+    darts: [],
+    continuousFire: false,
   };
 
   const boundaryCache = window.__BOUNDARY_DATA__ || (window.__BOUNDARY_DATA__ = Object.create(null));
@@ -63,6 +65,11 @@
   const goUpBtn = document.getElementById('go-up');
   const goHomeBtn = document.getElementById('go-home');
   const tweaksToggle = document.getElementById('tweaks-toggle');
+  const dartLayer = document.getElementById('dart-layer');
+  const fireDartBtn = document.getElementById('fire-dart');
+  const continuousFireBtn = document.getElementById('continuous-fire');
+  const stopFireBtn = document.getElementById('stop-fire');
+  const clearDartsBtn = document.getElementById('clear-darts');
 
   let projection = d3.geoMercator();
 
@@ -95,6 +102,7 @@
   function applyTransform() {
     wrap.style.transform =
       `translate(calc(-50% + ${state.tx}px), calc(-50% + ${state.ty}px)) scale(${state.scale})`;
+    wrap.style.setProperty('--zoom', state.scale);
     document.getElementById('zoom-level').textContent = Math.round(state.scale * 100) + '%';
   }
 
@@ -420,6 +428,7 @@
 
     goUpBtn.disabled = state.stack.length <= 1;
     goHomeBtn.disabled = state.stack.length <= 1;
+    updateDartButtons();
   }
 
   function renderBreadcrumb() {
@@ -591,6 +600,7 @@
     const loadingName = currentNode ? currentNode.name : '全国';
     showLoading(true, `边 界 装 载 中 · ${loadingName}`);
     hideInfoCard();
+    clearDarts();
 
     try {
       const geoJson = await loadBoundaryData(code);
@@ -608,6 +618,173 @@
       console.error(error);
       showError(`边界数据加载失败：${loadingName}`);
     }
+  }
+
+  function dartSVG(color) {
+    return `<svg width="70" height="70" viewBox="0 0 70 70">
+      <defs><filter id="df" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="2"/></filter></defs>
+      <ellipse cx="35" cy="60" rx="12" ry="3" fill="rgba(0,0,0,0.3)" filter="url(#df)"/>
+      <line x1="35" y1="5" x2="35" y2="50" stroke="${darken(color, 0.4)}" stroke-width="3" stroke-linecap="round"/>
+      <path d="M35,5 L28,15 L35,12 L42,15 Z" fill="${color}" stroke="#3a2e1f" stroke-width="1"/>
+      <path d="M35,5 L30,10 L35,8 L40,10 Z" fill="${darken(color, 0.2)}" stroke="#3a2e1f" stroke-width="0.8"/>
+      <path d="M35,55 L31,48 L35,50 L39,48 Z" fill="#3a2e1f" stroke="#3a2e1f" stroke-width="1" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  function regionToScreen(region) {
+    const tilt = TWEAKS.tiltAngle / 45;
+    const h = getRegionHeight(region);
+    const pt = MAP.createSVGPoint();
+    pt.x = region.cx;
+    pt.y = region.cy * (1 - tilt * 0.15) - h;
+    const matrix = MAP.getScreenCTM();
+    if (!matrix) return { x: 0, y: 0 };
+    const screen = pt.matrixTransform(matrix);
+    return { x: screen.x, y: screen.y };
+  }
+
+  function clearDarts() {
+    state.darts.forEach((d) => d.el.remove());
+    state.darts = [];
+  }
+
+  function updateDartButtons() {
+    stopFireBtn.disabled = !state.continuousFire;
+    const busy = state.continuousFire;
+    fireDartBtn.disabled = busy;
+    continuousFireBtn.disabled = busy || !state.regions.length || currentDepth() >= MAX_DEPTH;
+  }
+
+  function fireDart() {
+    if (!state.regions.length) return Promise.resolve(null);
+    const canDrill = currentDepth() < MAX_DEPTH;
+    const pool = canDrill ? state.regions.filter((r) => r.childrenNum > 0) : state.regions;
+    const regions = pool.length ? pool : state.regions;
+    const region = regions[Math.floor(Math.random() * regions.length)];
+    const dest = regionToScreen(region);
+    const color = getRegionColor(region);
+
+    const side = Math.floor(Math.random() * 4);
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    let sx;
+    let sy;
+    if (side === 0) { sx = -80; sy = Math.random() * H; }
+    else if (side === 1) { sx = W + 80; sy = Math.random() * H; }
+    else if (side === 2) { sx = Math.random() * W; sy = -80; }
+    else { sx = Math.random() * W; sy = H + 80; }
+
+    const el = document.createElement('div');
+    el.className = 'dart';
+    el.innerHTML = dartSVG(color);
+    el.style.left = (sx - 35) + 'px';
+    el.style.top = (sy - 35) + 'px';
+    el.style.opacity = '0';
+    dartLayer.appendChild(el);
+
+    const duration = 900;
+    const startAngle = Math.random() * 720 - 360;
+    const dx = dest.x - sx;
+    const dy = dest.y - sy;
+    const arc = -Math.min(200, Math.abs(dx) * 0.3 + 50);
+    const midX = sx + dx * 0.5;
+    const midY = sy + dy * 0.5 + arc;
+
+    const frames = [];
+    const N = 24;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const x = (1 - t) * (1 - t) * sx + 2 * (1 - t) * t * midX + t * t * dest.x;
+      const y = (1 - t) * (1 - t) * sy + 2 * (1 - t) * t * midY + t * t * dest.y;
+      const tx2 = 2 * (1 - t) * (midX - sx) + 2 * t * (dest.x - midX);
+      const ty2 = 2 * (1 - t) * (midY - sy) + 2 * t * (dest.y - midY);
+      const heading = Math.atan2(ty2, tx2) * 180 / Math.PI + 90;
+      const angle = t < 0.8
+        ? (startAngle * (1 - t / 0.8) + heading * (t / 0.8))
+        : heading;
+      frames.push({
+        transform: `translate(${x - sx}px, ${y - sy}px) rotate(${angle}deg) scale(${0.5 + t * 0.5})`,
+        opacity: t < 0.05 ? t * 20 : 1,
+      });
+    }
+
+    const anim = el.animate(frames, { duration, easing: 'ease-in', fill: 'forwards' });
+
+    return new Promise((resolve) => {
+      anim.onfinish = () => {
+        el.style.left = (dest.x - 35) + 'px';
+        el.style.top = (dest.y - 35) + 'px';
+        el.style.transform = 'rotate(0deg) scale(1)';
+        el.style.opacity = '1';
+        anim.cancel();
+        el.animate([
+          { transform: 'rotate(-8deg) scale(1.05)' },
+          { transform: 'rotate(5deg) scale(1)' },
+          { transform: 'rotate(-2deg) scale(1)' },
+          { transform: 'rotate(0deg) scale(1)' },
+        ], { duration: 400 });
+        el.style.pointerEvents = 'auto';
+        el.style.cursor = 'pointer';
+        el.title = '点击删除此飞镖';
+        const entry = { el, region };
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          el.remove();
+          const i = state.darts.indexOf(entry);
+          if (i !== -1) state.darts.splice(i, 1);
+        });
+        state.darts.push(entry);
+        resolve(region);
+      };
+    });
+  }
+
+  async function fireAndDrill() {
+    const region = await fireDart();
+    if (!region) return null;
+    const screen = regionToScreen(region);
+    showInfoCard(region, screen.x, screen.y);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    if (region.childrenNum > 0 && currentDepth() < MAX_DEPTH) {
+      await openBoundary(region.adcode, state.stack.concat([{ code: region.adcode, name: region.name }]));
+      return region;
+    }
+    return null;
+  }
+
+  async function startContinuous() {
+    if (state.continuousFire) return;
+    state.continuousFire = true;
+    updateDartButtons();
+    try {
+      while (state.continuousFire) {
+        const drilled = await fireAndDrill();
+        if (!drilled || !state.continuousFire) break;
+        if (currentDepth() >= MAX_DEPTH) break;
+        await new Promise((resolve) => setTimeout(resolve, 450));
+      }
+    } finally {
+      state.continuousFire = false;
+      updateDartButtons();
+    }
+  }
+
+  function stopContinuous() {
+    state.continuousFire = false;
+    updateDartButtons();
+  }
+
+  function setupDarts() {
+    fireDartBtn.onclick = async () => {
+      fireDartBtn.disabled = true;
+      await fireAndDrill();
+      updateDartButtons();
+    };
+    continuousFireBtn.onclick = startContinuous;
+    stopFireBtn.onclick = stopContinuous;
+    clearDartsBtn.onclick = clearDarts;
+    updateDartButtons();
   }
 
   function setupNavigation() {
@@ -749,6 +926,7 @@
     setupTweaksToggle();
     setupMessageBridge();
     setupGlobalClicks();
+    setupDarts();
     updatePanels();
     renderBreadcrumb();
     renderLegend();
