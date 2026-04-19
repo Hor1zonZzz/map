@@ -238,6 +238,154 @@ body {
   cursor: not-allowed;
 }
 
+.region-filter {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(58, 46, 31, 0.2);
+}
+
+.region-filter.hidden {
+  display: none;
+}
+
+.region-filter .filter-title {
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  cursor: pointer;
+  border-radius: 2px;
+  user-select: none;
+}
+
+.filter-row:hover {
+  background: rgba(60, 40, 20, 0.08);
+}
+
+.filter-row.off .filter-label,
+.filter-row.off .filter-count {
+  text-decoration: line-through;
+  opacity: 0.42;
+}
+
+.filter-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  flex-shrink: 0;
+  box-shadow: 1px 1px 0 rgba(60, 40, 20, 0.3);
+}
+
+.filter-label {
+  flex: 1;
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.filter-count {
+  font-size: 11px;
+  color: var(--ink-faded);
+  font-family: 'Courier New', monospace;
+}
+
+.radius-tool {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(58, 46, 31, 0.2);
+}
+
+.radius-tool.hidden {
+  display: none;
+}
+
+.radius-tool .tool-title {
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
+  font-size: 14px;
+  color: var(--ink);
+  margin-bottom: 8px;
+  letter-spacing: 2px;
+}
+
+.radius-tool .tool-status,
+.radius-tool .tool-meta {
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.radius-tool .tool-status {
+  min-height: 38px;
+}
+
+.radius-tool .tool-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.radius-tool .tool-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.radius-tool .tool-btn.secondary {
+  background: rgba(58, 46, 31, 0.1);
+  color: var(--ink);
+  border: 1px solid rgba(58, 46, 31, 0.18);
+}
+
+.radius-tool .tool-btn.active {
+  background: #8a2818;
+}
+
+.radius-tool .tool-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.radius-tool .tool-slider {
+  margin-top: 10px;
+}
+
+.radius-tool .tool-slider label {
+  display: block;
+  margin-bottom: 4px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.radius-tool .tool-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--ink);
+}
+
+.radius-tool .tool-value {
+  float: right;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
 .hint-list {
   margin-top: 14px;
   padding-top: 12px;
@@ -434,6 +582,16 @@ body {
   filter: brightness(1.08) saturate(1.08);
 }
 
+.province-top.out-of-radius {
+  opacity: 0.22;
+}
+
+.province-top.in-radius {
+  stroke: #f7f0dc;
+  stroke-width: 1.8;
+  filter: brightness(1.08) saturate(1.16);
+}
+
 .province-label {
   font-family: 'Noto Serif SC', 'KaiTi', serif;
   fill: var(--ink);
@@ -553,6 +711,29 @@ body {
 .dart svg {
   display: block;
   overflow: visible;
+}
+
+.radius-overlay {
+  pointer-events: none;
+}
+
+.radius-ring {
+  fill: rgba(169, 58, 42, 0.10);
+  stroke: rgba(138, 40, 24, 0.78);
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+}
+
+.radius-anchor {
+  fill: #f7f0dc;
+  stroke: #8a2818;
+  stroke-width: 2;
+}
+
+.radius-cross {
+  stroke: #8a2818;
+  stroke-width: 1.3;
+  stroke-linecap: round;
 }
 
 .info-card {

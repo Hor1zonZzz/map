@@ -34,6 +34,16 @@
     district: '区县级',
   };
 
+  const boundaryCache = window.__BOUNDARY_DATA__ || (window.__BOUNDARY_DATA__ = Object.create(null));
+  const boundaryPromises = new Map();
+  const manifest = window.__BOUNDARY_MANIFEST__ || null;
+  const statScheme = window.__STATISTICAL_REGION_SCHEME__ || null;
+  const STAT_ORDER = statScheme ? statScheme.regionOrder.concat(['excluded']) : [];
+  const STAT_META = statScheme ? {
+    ...statScheme.regions,
+    excluded: { key: 'excluded', name: '未纳入口径', provinceCodes: Object.keys(statScheme.excludedProvinceMap || {}) },
+  } : {};
+
   const state = {
     scale: 1,
     tx: 0,
@@ -46,6 +56,14 @@
     regions: [],
     darts: [],
     continuousFire: false,
+    regionFilter: STAT_ORDER.reduce((acc, k) => { acc[k] = true; return acc; }, {}),
+    radiusTool: {
+      placing: false,
+      radiusKm: 300,
+      anchorLngLat: null,
+      anchorScreen: null,
+      matchedCodes: [],
+    },
   };
 
   let rafHandle = null;
@@ -72,9 +90,13 @@
     if (rafHandle == null) rafHandle = requestAnimationFrame(renderLoop);
   }
 
-  const boundaryCache = window.__BOUNDARY_DATA__ || (window.__BOUNDARY_DATA__ = Object.create(null));
-  const boundaryPromises = new Map();
-  const manifest = window.__BOUNDARY_MANIFEST__ || null;
+  function statGroupFor(adcode) {
+    if (!statScheme) return null;
+    const mapped = statScheme.provinceMap[adcode];
+    if (mapped) return mapped.regionKey;
+    if (statScheme.excludedProvinceMap[adcode]) return 'excluded';
+    return null;
+  }
 
   const MAP = document.getElementById('map-svg');
   const stage = document.getElementById('map-stage');
@@ -95,6 +117,7 @@
   const continuousFireBtn = document.getElementById('continuous-fire');
   const stopFireBtn = document.getElementById('stop-fire');
   const clearDartsBtn = document.getElementById('clear-darts');
+  const radiusToolEl = document.getElementById('radius-tool');
 
   let projection = d3.geoMercator();
 
@@ -191,6 +214,19 @@
       .toString(16)
       .padStart(2, '0');
     return `#${scale(r)}${scale(g)}${scale(b)}`;
+  }
+
+  function haversineKm(a, b) {
+    const [lng1, lat1] = a;
+    const [lng2, lat2] = b;
+    const toRad = (deg) => deg * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const rLat1 = toRad(lat1);
+    const rLat2 = toRad(lat2);
+    const h = Math.sin(dLat / 2) ** 2
+      + Math.cos(rLat1) * Math.cos(rLat2) * Math.sin(dLng / 2) ** 2;
+    return 6371 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
   }
 
   function pointsToPath(points) {
@@ -343,6 +379,12 @@
     return `data/boundaries/${code}_full.js`;
   }
 
+  function regionReferenceLngLat(region) {
+    if (Array.isArray(region.center) && region.center.length === 2) return region.center;
+    if (Array.isArray(region.centroid) && region.centroid.length === 2) return region.centroid;
+    return null;
+  }
+
   function loadBoundaryData(code) {
     const key = String(code);
     if (boundaryCache[key]) {
@@ -448,8 +490,10 @@
 
       rings.sort((left, right) => right.length - left.length);
       const centroid = polylabel(rings[0]);
+      const adcodeStr = String(props.adcode);
       regions.push({
-        adcode: String(props.adcode),
+        adcode: adcodeStr,
+        statGroup: statGroupFor(adcodeStr),
         name: props.name || '',
         level: props.level || '',
         parentCode: props.parentCode || '',
@@ -473,6 +517,82 @@
     const theme = currentTheme();
     const palette = theme.surfaces;
     return palette[hashCode(region.adcode) % palette.length] || theme.neutral;
+  }
+
+  function recomputeRadiusSelection() {
+    const tool = state.radiusTool;
+    tool.matchedCodes = [];
+    tool.anchorScreen = null;
+    if (!tool.anchorLngLat) return;
+
+    const screenPoint = projection(tool.anchorLngLat);
+    if (screenPoint && Number.isFinite(screenPoint[0]) && Number.isFinite(screenPoint[1])) {
+      tool.anchorScreen = screenPoint;
+    }
+
+    tool.matchedCodes = state.regions
+      .filter((region) => {
+        const target = regionReferenceLngLat(region);
+        if (!target) return false;
+        return haversineKm(tool.anchorLngLat, target) <= tool.radiusKm;
+      })
+      .map((region) => region.adcode);
+  }
+
+  function isRegionWithinRadius(region) {
+    return state.radiusTool.matchedCodes.includes(region.adcode);
+  }
+
+  function renderRadiusTool() {
+    if (!radiusToolEl) return;
+    const tool = state.radiusTool;
+    const unitLabel = getCurrentUnitLabel();
+    const placingText = '请在地图上单击落点，系统会按当前半径圈出命中区域。';
+    const anchorText = tool.anchorLngLat
+      ? `已设置锚点，当前半径命中 ${tool.matchedCodes.length} 个${unitLabel}。`
+      : '未设置锚点。点击“标记点位”后，在地图上落一个中心点。';
+    const statusText = tool.placing ? placingText : anchorText;
+
+    radiusToolEl.classList.remove('hidden');
+    radiusToolEl.innerHTML = `
+      <div class="tool-title">半 径 圈 选</div>
+      <div class="tool-status">${statusText}</div>
+      <div class="tool-actions">
+        <button class="tool-btn${tool.placing ? ' active' : ''}" id="radius-place-btn">${tool.placing ? '等 待 落 点' : '标 记 点 位'}</button>
+        <button class="tool-btn secondary" id="radius-clear-btn"${tool.anchorLngLat ? '' : ' disabled'}>清 除 圈 选</button>
+      </div>
+      <div class="tool-slider">
+        <label>半径范围 <span class="tool-value">${tool.radiusKm} km</span></label>
+        <input type="range" id="radius-range" min="50" max="1200" step="10" value="${tool.radiusKm}">
+      </div>
+      <div class="tool-meta">当前按“区域中心点是否落入半径”判断命中。飞镖会优先在圈内抽取，圈内为空时回退到当前可见区域。</div>
+    `;
+
+    radiusToolEl.querySelector('#radius-place-btn').onclick = () => {
+      tool.placing = !tool.placing;
+      renderRadiusTool();
+    };
+
+    radiusToolEl.querySelector('#radius-clear-btn').onclick = () => {
+      tool.placing = false;
+      tool.anchorLngLat = null;
+      recomputeRadiusSelection();
+      renderRadiusTool();
+      renderMap();
+    };
+
+    radiusToolEl.querySelector('#radius-range').oninput = (event) => {
+      tool.radiusKm = Number(event.target.value);
+      recomputeRadiusSelection();
+      renderRadiusTool();
+      renderMap();
+    };
+  }
+
+  function isRegionFilteredIn(region) {
+    if (currentDepth() !== 0 || !statScheme) return true;
+    if (!region.statGroup) return true;
+    return !!state.regionFilter[region.statGroup];
   }
 
   function shouldRenderLabel(region) {
@@ -507,7 +627,56 @@
 
     goUpBtn.disabled = state.stack.length <= 1;
     goHomeBtn.disabled = state.stack.length <= 1;
+    renderRegionFilter();
+    renderRadiusTool();
     updateDartButtons();
+  }
+
+  function renderRegionFilter() {
+    const el = document.getElementById('region-filter');
+    if (!el || !statScheme) return;
+    if (currentDepth() !== 0) {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    const theme = currentTheme();
+    const counts = {};
+    for (const r of state.regions) {
+      const k = r.statGroup || 'other';
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    const swatches = {
+      eastern: theme.surfaces[5] || theme.surfaces[0],
+      central: theme.surfaces[2] || theme.surfaces[0],
+      western: theme.surfaces[1] || theme.surfaces[0],
+      northeastern: theme.surfaces[3] || theme.surfaces[0],
+      excluded: theme.neutral,
+    };
+    const rows = STAT_ORDER.map((key) => {
+      const meta = STAT_META[key];
+      if (!meta) return '';
+      const count = counts[key] || 0;
+      const off = !state.regionFilter[key];
+      return `
+        <div class="filter-row${off ? ' off' : ''}" data-key="${key}">
+          <span class="filter-swatch" style="background:${swatches[key] || theme.neutral}"></span>
+          <span class="filter-label">${meta.name}</span>
+          <span class="filter-count">${count}</span>
+        </div>
+      `;
+    }).join('');
+    el.innerHTML = `<div class="filter-title">地 区 筛 选</div>${rows}`;
+    el.querySelectorAll('.filter-row').forEach((row) => {
+      row.onclick = () => {
+        const key = row.dataset.key;
+        state.regionFilter[key] = !state.regionFilter[key];
+        row.classList.toggle('off', !state.regionFilter[key]);
+        renderMap();
+        updateDartButtons();
+      };
+    });
   }
 
   function renderBreadcrumb() {
@@ -540,6 +709,7 @@
       <div>■ 当前层级：${unitLabel}</div>
       <div>■ 点击有子级的区域进入下一层</div>
       <div>■ 到区县级后只显示详情，不再继续拆分</div>
+      <div>■ 半径圈选按区域中心点命中判断</div>
     `;
   }
 
@@ -570,6 +740,8 @@
   function renderMap() {
     if (!state.regions.length) return;
     MAP.innerHTML = '';
+    const matchedSet = new Set(state.radiusTool.matchedCodes);
+    const hasRadiusSelection = Boolean(state.radiusTool.anchorLngLat);
 
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     defs.innerHTML = `
@@ -583,7 +755,9 @@
     regionGroup.setAttribute('id', 'regions');
 
     state.regions.forEach((region) => {
+      if (!isRegionFilteredIn(region)) return;
       const color = getRegionColor(region);
+      const withinRadius = matchedSet.has(region.adcode);
       const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       group.setAttribute('class', 'province');
       group.setAttribute('data-code', region.adcode);
@@ -592,7 +766,10 @@
       const topPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       topPath.setAttribute('d', pathD);
       topPath.setAttribute('fill-rule', 'evenodd');
-      topPath.setAttribute('class', 'province-top');
+      topPath.setAttribute(
+        'class',
+        `province-top${hasRadiusSelection ? (withinRadius ? ' in-radius' : ' out-of-radius') : ''}`,
+      );
       topPath.setAttribute('fill', color);
       topPath.setAttribute('data-name', region.name);
       topPath.setAttribute('data-code', region.adcode);
@@ -602,6 +779,10 @@
       topPath.addEventListener('mouseleave', hideInfoCard);
       topPath.addEventListener('click', async (event) => {
         event.stopPropagation();
+        if (state.radiusTool.placing) {
+          setRadiusAnchorFromClient(event.clientX, event.clientY);
+          return;
+        }
         if (region.childrenNum > 0 && currentDepth() < MAX_DEPTH) {
           await openBoundary(region.adcode, state.stack.concat([{ code: region.adcode, name: region.name }]));
           return;
@@ -642,6 +823,45 @@
     });
 
     MAP.appendChild(regionGroup);
+
+    if (state.radiusTool.anchorScreen) {
+      const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      overlay.setAttribute('class', 'radius-overlay');
+      const [ax, ay] = state.radiusTool.anchorScreen;
+      const radiusPx = projectedRadiusPx(state.radiusTool.anchorLngLat, state.radiusTool.radiusKm);
+
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('class', 'radius-ring');
+      circle.setAttribute('cx', ax.toFixed(1));
+      circle.setAttribute('cy', ay.toFixed(1));
+      circle.setAttribute('r', radiusPx.toFixed(1));
+      overlay.appendChild(circle);
+
+      const anchor = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      anchor.setAttribute('class', 'radius-anchor');
+      anchor.setAttribute('cx', ax.toFixed(1));
+      anchor.setAttribute('cy', ay.toFixed(1));
+      anchor.setAttribute('r', '5');
+      overlay.appendChild(anchor);
+
+      const crossH = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      crossH.setAttribute('class', 'radius-cross');
+      crossH.setAttribute('x1', (ax - 9).toFixed(1));
+      crossH.setAttribute('x2', (ax + 9).toFixed(1));
+      crossH.setAttribute('y1', ay.toFixed(1));
+      crossH.setAttribute('y2', ay.toFixed(1));
+      overlay.appendChild(crossH);
+
+      const crossV = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      crossV.setAttribute('class', 'radius-cross');
+      crossV.setAttribute('x1', ax.toFixed(1));
+      crossV.setAttribute('x2', ax.toFixed(1));
+      crossV.setAttribute('y1', (ay - 9).toFixed(1));
+      crossV.setAttribute('y2', (ay + 9).toFixed(1));
+      overlay.appendChild(crossV);
+
+      MAP.appendChild(overlay);
+    }
   }
 
   async function openBoundary(code, nextStack) {
@@ -657,6 +877,7 @@
       state.stack = nextStack;
       state.currentData = geoJson;
       state.regions = buildRegions(geoJson);
+      recomputeRadiusSelection();
       updatePanels();
       renderBreadcrumb();
       renderLegend();
@@ -691,6 +912,38 @@
     return { x: screen.x, y: screen.y };
   }
 
+  function screenToMap(clientX, clientY) {
+    const matrix = MAP.getScreenCTM();
+    if (!matrix) return null;
+    const point = MAP.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    return point.matrixTransform(matrix.inverse());
+  }
+
+  function projectedRadiusPx(anchorLngLat, radiusKm) {
+    const [lng, lat] = anchorLngLat;
+    const point = projection(anchorLngLat);
+    if (!point) return 0;
+    const cosLat = Math.max(0.15, Math.cos(lat * Math.PI / 180));
+    const deltaLng = radiusKm / (111.32 * cosLat);
+    const eastPoint = projection([lng + deltaLng, lat]);
+    if (!eastPoint) return 0;
+    return Math.hypot(eastPoint[0] - point[0], eastPoint[1] - point[1]);
+  }
+
+  function setRadiusAnchorFromClient(clientX, clientY) {
+    const mapPoint = screenToMap(clientX, clientY);
+    if (!mapPoint) return;
+    const lngLat = projection.invert([mapPoint.x, mapPoint.y]);
+    if (!lngLat || !Number.isFinite(lngLat[0]) || !Number.isFinite(lngLat[1])) return;
+    state.radiusTool.anchorLngLat = lngLat;
+    state.radiusTool.placing = false;
+    recomputeRadiusSelection();
+    renderRadiusTool();
+    renderMap();
+  }
+
   function clearDarts() {
     state.darts.forEach((d) => d.el.remove());
     state.darts = [];
@@ -706,8 +959,14 @@
   function fireDart() {
     if (!state.regions.length) return Promise.resolve(null);
     const canDrill = currentDepth() < MAX_DEPTH;
-    const pool = canDrill ? state.regions.filter((r) => r.childrenNum > 0) : state.regions;
-    const regions = pool.length ? pool : state.regions;
+    const visible = state.regions.filter(isRegionFilteredIn);
+    const visibleSource = visible.length ? visible : state.regions;
+    const radiusPreferred = state.radiusTool.anchorLngLat
+      ? visibleSource.filter(isRegionWithinRadius)
+      : [];
+    const source = radiusPreferred.length ? radiusPreferred : visibleSource;
+    const pool = canDrill ? source.filter((r) => r.childrenNum > 0) : source;
+    const regions = pool.length ? pool : source;
     const region = regions[Math.floor(Math.random() * regions.length)];
     const dest = regionToScreen(region);
     const color = getRegionColor(region);
@@ -944,6 +1203,11 @@
 
   function setupGlobalClicks() {
     stage.addEventListener('click', (event) => {
+      if (state.radiusTool.placing && !event.target.closest('.controls, .legend, .tweaks, .zoom-ctrl, .info-card, .breadcrumb, .tweaks-toggle, .dart-panel')) {
+        setRadiusAnchorFromClient(event.clientX, event.clientY);
+        hideInfoCard();
+        return;
+      }
       if (!event.target.closest('.province-top, .info-card')) {
         hideInfoCard();
       }
