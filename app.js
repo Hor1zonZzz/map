@@ -210,6 +210,25 @@
     return points.concat([[first[0], first[1]]]);
   }
 
+  function isRenderableFeature(feature) {
+    const props = feature?.properties || {};
+    const adcode = String(props.adcode || '');
+    const name = props.name || '';
+    return Boolean(name) && !adcode.includes('_JD');
+  }
+
+  function forEachCoordinate(geometry, callback) {
+    const visit = (coords) => {
+      if (!Array.isArray(coords) || !coords.length) return;
+      if (typeof coords[0] === 'number') {
+        callback(coords);
+        return;
+      }
+      coords.forEach(visit);
+    };
+    visit(geometry.coordinates);
+  }
+
   function project2_5D(points, tilt, heightPx) {
     const k = 1 - tilt * 0.15;
     const base = points.map(([x, y]) => [x, y * k]);
@@ -263,20 +282,50 @@
   }
 
   function fitProjection(geoJson) {
-    projection = d3.geoMercator().fitExtent(
-      [[90, 40], [910, 760]],
-      geoJson,
-    );
+    const targetMinX = 90;
+    const targetMinY = 40;
+    const targetMaxX = 910;
+    const targetMaxY = 760;
+    const baseProjection = d3.geoMercator().scale(1).translate([0, 0]);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (const feature of geoJson.features.filter(isRenderableFeature)) {
+      forEachCoordinate(feature.geometry, (coord) => {
+        const point = baseProjection(coord);
+        if (!point || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return;
+        minX = Math.min(minX, point[0]);
+        maxX = Math.max(maxX, point[0]);
+        minY = Math.min(minY, point[1]);
+        maxY = Math.max(maxY, point[1]);
+      });
+    }
+
+    const width = Math.max(1e-6, maxX - minX);
+    const height = Math.max(1e-6, maxY - minY);
+    const scale = Math.min((targetMaxX - targetMinX) / width, (targetMaxY - targetMinY) / height);
+    const translateX = (targetMinX + targetMaxX) / 2 - scale * (minX + maxX) / 2;
+    const translateY = (targetMinY + targetMaxY) / 2 - scale * (minY + maxY) / 2;
+
+    projection = d3.geoMercator()
+      .scale(scale)
+      .translate([translateX, translateY]);
   }
 
   function buildRegions(geoJson) {
     const tolerance = currentDepth() === 0 ? 1.1 : currentDepth() === 1 ? 0.55 : 0.25;
     const regions = [];
 
-    for (const feature of geoJson.features) {
+    for (const feature of geoJson.features.filter(isRenderableFeature)) {
       const rings = [];
       const geometry = feature.geometry;
       const props = feature.properties || {};
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
 
       const collectPolygon = (polygon) => {
         for (const ring of polygon) {
@@ -284,6 +333,12 @@
             .map((point) => projection(point))
             .filter((point) => point && Number.isFinite(point[0]) && Number.isFinite(point[1]));
           if (projected.length < 4) continue;
+          projected.forEach((point) => {
+            minX = Math.min(minX, point[0]);
+            maxX = Math.max(maxX, point[0]);
+            minY = Math.min(minY, point[1]);
+            maxY = Math.max(maxY, point[1]);
+          });
           const simplified = simplify(projected, tolerance);
           const closed = closeRing(simplified);
           if (closed.length >= 4) rings.push(closed);
@@ -312,6 +367,9 @@
         rings,
         cx: centroid[0],
         cy: centroid[1],
+        bboxWidth: maxX - minX,
+        bboxHeight: maxY - minY,
+        areaEstimate: (maxX - minX) * (maxY - minY),
       });
     }
 
@@ -328,6 +386,16 @@
     const base = [42, 28, 16][Math.min(currentDepth(), 2)] || 16;
     const extra = currentDepth() < 2 ? Math.min(region.childrenNum || 0, 12) * (currentDepth() === 0 ? 1.1 : 0.55) : 0;
     return (base + extra) * TWEAKS.heightExaggerate;
+  }
+
+  function shouldRenderLabel(region) {
+    if (currentDepth() === 0) {
+      return region.areaEstimate > 1800;
+    }
+    if (currentDepth() === 1) {
+      return state.regions.length <= 24 || region.areaEstimate > 380;
+    }
+    return state.regions.length <= 12 || region.areaEstimate > 180;
   }
 
   function getCurrentUnitLabel() {
@@ -502,7 +570,7 @@
       hatch.setAttribute('opacity', '0.52');
       group.appendChild(hatch);
 
-      if (state.regions.length <= 45 || region.childrenNum > 0) {
+      if (shouldRenderLabel(region)) {
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('x', region.cx);
         label.setAttribute('y', region.cy * (1 - tilt * 0.15) - height - 2);
