@@ -249,6 +249,71 @@
     return [sx / ring.length, sy / ring.length];
   }
 
+  function pointInRing(x, y, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0];
+      const yi = ring[i][1];
+      const xj = ring[j][0];
+      const yj = ring[j][1];
+      if (((yi > y) !== (yj > y)) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  }
+
+  function signedDistToRing(x, y, ring) {
+    let minDist = Infinity;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const d = perpDist([x, y], ring[i], ring[i + 1]);
+      if (d < minDist) minDist = d;
+    }
+    return pointInRing(x, y, ring) ? minDist : -minDist;
+  }
+
+  // pole of inaccessibility — 最大内接圆圆心，稳定落在形状内部
+  function polylabel(ring, precision) {
+    precision = precision || 1.5;
+    let minX = ring[0][0];
+    let minY = ring[0][1];
+    let maxX = minX;
+    let maxY = minY;
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (w === 0 || h === 0) return [minX, minY];
+
+    let bestX = (minX + maxX) / 2;
+    let bestY = (minY + maxY) / 2;
+    let bestDist = signedDistToRing(bestX, bestY, ring);
+
+    let step = Math.min(w, h) / 8;
+    while (step > precision) {
+      const x0 = Math.max(minX, bestX - step * 5);
+      const x1 = Math.min(maxX, bestX + step * 5);
+      const y0 = Math.max(minY, bestY - step * 5);
+      const y1 = Math.min(maxY, bestY + step * 5);
+      for (let x = x0; x <= x1; x += step) {
+        for (let y = y0; y <= y1; y += step) {
+          const d = signedDistToRing(x, y, ring);
+          if (d > bestDist) {
+            bestDist = d;
+            bestX = x;
+            bestY = y;
+          }
+        }
+      }
+      step /= 2;
+    }
+    return [bestX, bestY];
+  }
+
   function closeRing(points) {
     if (!points.length) return points;
     const first = points[0];
@@ -401,7 +466,7 @@
       if (!rings.length) continue;
 
       rings.sort((left, right) => right.length - left.length);
-      const centroid = ringCentroid(rings[0]);
+      const centroid = polylabel(rings[0]);
       regions.push({
         adcode: String(props.adcode),
         name: props.name || '',
@@ -623,7 +688,14 @@
         label.setAttribute('x', region.cx);
         label.setAttribute('y', region.cy * (1 - tilt * 0.15) - height - 2);
         label.setAttribute('class', 'province-label');
-        label.setAttribute('font-size', currentDepth() === 0 ? '13' : currentDepth() === 1 ? '11' : '10');
+        const baseSize = currentDepth() === 0 ? 13 : currentDepth() === 1 ? 11 : 10;
+        const charW = baseSize * 0.95;
+        const estWidth = region.name.length * charW;
+        const maxWidth = region.bboxWidth * 0.85;
+        const finalSize = estWidth <= maxWidth
+          ? baseSize
+          : Math.max(7, Math.floor(maxWidth / (region.name.length * 0.95)));
+        label.setAttribute('font-size', String(finalSize));
         label.textContent = region.name;
         group.appendChild(label);
       }
