@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>华夏舆图 · 省市区县下钻</title>
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <div class="paper"></div>
+
+  <div class="map-title">
+    华夏舆图
+    <small>省 市 区 县 · 本 地 边 界 下 钻</small>
+  </div>
+
+  <svg class="compass" viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r="42" fill="none" stroke="#3a2e1f" stroke-width="1.2"/>
+    <circle cx="50" cy="50" r="38" fill="none" stroke="#6b563b" stroke-width="0.6" stroke-dasharray="2 2"/>
+    <path d="M50,10 L55,50 L50,90 L45,50 Z" fill="#a33a2a" stroke="#3a2e1f" stroke-width="0.8"/>
+    <path d="M10,50 L50,45 L90,50 L50,55 Z" fill="#c4b18b" stroke="#3a2e1f" stroke-width="0.8"/>
+    <text x="50" y="8" font-family="Ma Shan Zheng,serif" font-size="10" text-anchor="middle" fill="#3a2e1f">北</text>
+    <text x="50" y="98" font-family="Ma Shan Zheng,serif" font-size="10" text-anchor="middle" fill="#3a2e1f">南</text>
+    <text x="6" y="54" font-family="Ma Shan Zheng,serif" font-size="10" text-anchor="middle" fill="#3a2e1f">西</text>
+    <text x="94" y="54" font-family="Ma Shan Zheng,serif" font-size="10" text-anchor="middle" fill="#3a2e1f">东</text>
+    <circle cx="50" cy="50" r="3" fill="#3a2e1f"/>
+  </svg>
+
+  <div class="breadcrumb" id="breadcrumb"></div>
+
+  <div class="controls">
+    <h3>行 政 区 划</h3>
+    <div class="scope-card">
+      <div class="scope-label">当前区域</div>
+      <div class="scope-name" id="scope-name">全国</div>
+      <div class="scope-meta" id="scope-meta">等待加载边界…</div>
+      <div class="scope-count" id="scope-count">0 个省级单位</div>
+    </div>
+    <div class="nav-actions">
+      <button class="panel-btn" id="go-up">返回上一级</button>
+      <button class="panel-btn secondary" id="go-home">回到全国</button>
+    </div>
+    <div class="hint-list">
+      <div>单击区域：进入下一层</div>
+      <div>区县级：停在 V1 叶子层</div>
+      <div>滚轮缩放，拖拽平移</div>
+    </div>
+    <div class="data-note" id="data-source">本地静态镜像</div>
+  </div>
+
+  <div class="legend" id="legend"></div>
+
+  <button class="tweaks-toggle" id="tweaks-toggle" title="打开调参面板">⚙ 调 参</button>
+
+  <div class="tweaks" id="tweaks-panel">
+    <h3>Tweaks · 调 参</h3>
+    <div class="tweak-row">
+      <label>2.5D 倾斜角度 <span class="val" id="tw-tilt-val">16°</span></label>
+      <input type="range" id="tw-tilt" min="0" max="35" step="1">
+    </div>
+    <div class="tweak-row">
+      <label>高度夸张程度 <span class="val" id="tw-height-val">1.0x</span></label>
+      <input type="range" id="tw-height" min="0.5" max="2.5" step="0.1">
+    </div>
+    <div class="tweak-row">
+      <label>配色主题</label>
+      <div class="tweak-choices">
+        <button data-theme="vintage">复古</button>
+        <button data-theme="ink">水墨</button>
+        <button data-theme="autumn">秋染</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="map-stage" id="map-stage">
+    <div class="map-wrap" id="map-wrap">
+      <svg class="map-svg" id="map-svg" viewBox="0 -40 1000 840" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="map-loading" id="map-loading">
+        <div class="spinner"></div>
+        <div class="loading-text">边 界 装 载 中 …</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="zoom-ctrl">
+    <button id="zoom-in">＋</button>
+    <div class="zoom-level" id="zoom-level">100%</div>
+    <button id="zoom-out">－</button>
+    <button id="zoom-reset" title="重置" style="margin-top:4px; font-size:12px;">⟲</button>
+  </div>
+
+  <div class="info-card" id="info-card" style="display:none"></div>
+
+  <script src="data/boundary-manifest.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
