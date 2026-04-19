@@ -16,6 +16,8 @@
 
 - `data/boundary-manifest.js`
   记录生成时间、上游来源、文件数量。
+- `data/statistical-regions.js`
+  国家统计局四大地区口径映射表：东部 / 中部 / 西部 / 东北。
 - `data/boundaries/100000_full.js`
   全国省级边界。
 - `data/boundaries/<省adcode>_full.js`
@@ -33,3 +35,4 @@ node scripts/build-boundaries.mjs
 
 - V1 叶子层停在区县级，不继续拆到乡镇街道。
 - 旧的手写“城市等级 / tier”数据已移除，避免和新的行政区划数据混用。
+- 国家统计局四大地区映射仅覆盖大陆 31 个省级行政区；香港、澳门、台湾在该口径下单独标记为未纳入。

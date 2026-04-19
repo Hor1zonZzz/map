@@ -421,18 +421,6 @@ body {
   }
 }
 
-.province-shadow {
-  fill: rgba(60, 40, 20, 0.24);
-  filter: blur(4px);
-}
-
-.province-side {
-  stroke: rgba(60, 40, 20, 0.38);
-  stroke-width: 0.42;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
 .province-top {
   stroke: rgba(58, 46, 31, 0.82);
   stroke-width: 0.95;
@@ -457,8 +445,7 @@ body {
   stroke-width: 3px;
   letter-spacing: 0.5px;
   transform: scale(calc(1 / var(--zoom, 1)));
-  transform-box: fill-box;
-  transform-origin: center;
+  transform-origin: 0 0;
 }
 
 .zoom-ctrl {

@@ -3,8 +3,6 @@
   'use strict';
 
   const TWEAKS = /*EDITMODE-BEGIN*/{
-    "tiltAngle": 16,
-    "heightExaggerate": 1.0,
     "colorTheme": "vintage"
   }/*EDITMODE-END*/;
 
@@ -63,7 +61,7 @@
       rafHandle = null;
       return;
     }
-    const k = 0.22;
+    const k = 0.38;
     state.scale += ds * k;
     state.tx += dx * k;
     state.ty += dy * k;
@@ -341,23 +339,6 @@
     visit(geometry.coordinates);
   }
 
-  function project2_5D(points, tilt, heightPx) {
-    const k = 1 - tilt * 0.15;
-    const base = points.map(([x, y]) => [x, y * k]);
-    const top = points.map(([x, y]) => [x, y * k - heightPx]);
-    return { base, top };
-  }
-
-  function isOuterRing(ring) {
-    let sum = 0;
-    for (let i = 0; i < ring.length; i++) {
-      const [x1, y1] = ring[i];
-      const [x2, y2] = ring[(i + 1) % ring.length];
-      sum += (x2 - x1) * (y2 + y1);
-    }
-    return sum < 0;
-  }
-
   function pathForCode(code) {
     return `data/boundaries/${code}_full.js`;
   }
@@ -494,12 +475,6 @@
     return palette[hashCode(region.adcode) % palette.length] || theme.neutral;
   }
 
-  function getRegionHeight(region) {
-    const base = [42, 28, 16][Math.min(currentDepth(), 2)] || 16;
-    const extra = currentDepth() < 2 ? Math.min(region.childrenNum || 0, 12) * (currentDepth() === 0 ? 1.1 : 0.55) : 0;
-    return (base + extra) * TWEAKS.heightExaggerate;
-  }
-
   function shouldRenderLabel(region) {
     if (currentDepth() === 0) {
       return region.areaEstimate > 1800;
@@ -594,7 +569,6 @@
 
   function renderMap() {
     if (!state.regions.length) return;
-    const tilt = TWEAKS.tiltAngle / 45;
     MAP.innerHTML = '';
 
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
@@ -605,57 +579,18 @@
     `;
     MAP.appendChild(defs);
 
-    const sorted = [...state.regions].sort((left, right) => left.cy - right.cy);
-
-    const shadowGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    shadowGroup.setAttribute('class', 'shadow-layer');
-    for (const region of sorted) {
-      for (const ring of region.rings) {
-        const shadowPts = project2_5D(ring, tilt, 0).base.map((point) => [point[0] + 4, point[1] + 4]);
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', pointsToPath(shadowPts));
-        path.setAttribute('class', 'province-shadow');
-        shadowGroup.appendChild(path);
-      }
-    }
-    MAP.appendChild(shadowGroup);
-
     const regionGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     regionGroup.setAttribute('id', 'regions');
 
-    sorted.forEach((region) => {
+    state.regions.forEach((region) => {
       const color = getRegionColor(region);
-      const height = getRegionHeight(region);
       const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
       group.setAttribute('class', 'province');
       group.setAttribute('data-code', region.adcode);
 
-      for (const ring of region.rings) {
-        const projected = project2_5D(ring, tilt, height);
-        const outer = isOuterRing(projected.base);
-        const sideColor = darken(color, 0.35);
-        for (let i = 0; i < projected.base.length - 1; i++) {
-          const base1 = projected.base[i];
-          const base2 = projected.base[i + 1];
-          const top1 = projected.top[i];
-          const top2 = projected.top[i + 1];
-          const dx = base2[0] - base1[0];
-          const faceDown = outer ? dx < 0 : dx > 0;
-          if (!faceDown) continue;
-          const face = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          face.setAttribute(
-            'd',
-            `M${base1[0].toFixed(1)},${base1[1].toFixed(1)} L${base2[0].toFixed(1)},${base2[1].toFixed(1)} L${top2[0].toFixed(1)},${top2[1].toFixed(1)} L${top1[0].toFixed(1)},${top1[1].toFixed(1)} Z`,
-          );
-          face.setAttribute('class', 'province-side');
-          face.setAttribute('fill', sideColor);
-          group.appendChild(face);
-        }
-      }
-
-      const topRings = region.rings.map((ring) => project2_5D(ring, tilt, height).top);
+      const pathD = multiPointsToPath(region.rings);
       const topPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      topPath.setAttribute('d', multiPointsToPath(topRings));
+      topPath.setAttribute('d', pathD);
       topPath.setAttribute('fill-rule', 'evenodd');
       topPath.setAttribute('class', 'province-top');
       topPath.setAttribute('fill', color);
@@ -676,7 +611,7 @@
       group.appendChild(topPath);
 
       const hatch = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      hatch.setAttribute('d', multiPointsToPath(topRings));
+      hatch.setAttribute('d', pathD);
       hatch.setAttribute('fill-rule', 'evenodd');
       hatch.setAttribute('fill', 'url(#texture-hatch)');
       hatch.setAttribute('pointer-events', 'none');
@@ -684,9 +619,11 @@
       group.appendChild(hatch);
 
       if (shouldRenderLabel(region)) {
+        const labelAnchor = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        labelAnchor.setAttribute('transform', `translate(${region.cx.toFixed(1)},${region.cy.toFixed(1)})`);
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', region.cx);
-        label.setAttribute('y', region.cy * (1 - tilt * 0.15) - height - 2);
+        label.setAttribute('x', 0);
+        label.setAttribute('y', 0);
         label.setAttribute('class', 'province-label');
         const baseSize = currentDepth() === 0 ? 13 : currentDepth() === 1 ? 11 : 10;
         const charW = baseSize * 0.95;
@@ -697,7 +634,8 @@
           : Math.max(7, Math.floor(maxWidth / (region.name.length * 0.95)));
         label.setAttribute('font-size', String(finalSize));
         label.textContent = region.name;
-        group.appendChild(label);
+        labelAnchor.appendChild(label);
+        group.appendChild(labelAnchor);
       }
 
       regionGroup.appendChild(group);
@@ -744,11 +682,9 @@
   }
 
   function regionToScreen(region) {
-    const tilt = TWEAKS.tiltAngle / 45;
-    const h = getRegionHeight(region);
     const pt = MAP.createSVGPoint();
     pt.x = region.cx;
-    pt.y = region.cy * (1 - tilt * 0.15) - h;
+    pt.y = region.cy;
     const matrix = MAP.getScreenCTM();
     if (!matrix) return { x: 0, y: 0 };
     const screen = pt.matrixTransform(matrix);
@@ -970,27 +906,6 @@
 
   function setupTweaks() {
     const panel = document.getElementById('tweaks-panel');
-    const tiltSlider = panel.querySelector('#tw-tilt');
-    const heightSlider = panel.querySelector('#tw-height');
-
-    tiltSlider.value = TWEAKS.tiltAngle;
-    panel.querySelector('#tw-tilt-val').textContent = TWEAKS.tiltAngle + '°';
-    tiltSlider.oninput = (event) => {
-      TWEAKS.tiltAngle = Number(event.target.value);
-      panel.querySelector('#tw-tilt-val').textContent = TWEAKS.tiltAngle + '°';
-      renderMap();
-      persist();
-    };
-
-    heightSlider.value = TWEAKS.heightExaggerate;
-    panel.querySelector('#tw-height-val').textContent = TWEAKS.heightExaggerate.toFixed(1) + 'x';
-    heightSlider.oninput = (event) => {
-      TWEAKS.heightExaggerate = Number(event.target.value);
-      panel.querySelector('#tw-height-val').textContent = TWEAKS.heightExaggerate.toFixed(1) + 'x';
-      renderMap();
-      persist();
-    };
-
     panel.querySelectorAll('[data-theme]').forEach((button) => {
       if (button.dataset.theme === TWEAKS.colorTheme) {
         button.classList.add('active');
