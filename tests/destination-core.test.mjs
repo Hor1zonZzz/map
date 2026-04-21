@@ -1,16 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import vm from "node:vm";
+import { fileURLToPath } from "node:url";
 
 import * as turf from "@turf/turf";
 
 import {
+  createFallbackDestination,
   pickRandomImpactLngLat,
   pickRegionForCurrentDepth,
   pointInsideFeature,
   projectLngLatToScreen,
   resolveDestination,
 } from "../src/destination-core.mjs";
-import { loadBoundaryIndex } from "../scripts/build-destinations.mjs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const boundaryDir = path.resolve(__dirname, "..", "data", "boundaries");
+
+async function loadBoundaryIndex() {
+  const files = (await fs.readdir(boundaryDir)).filter((name) => name.endsWith("_full.js")).sort();
+  const index = new Map();
+  for (const file of files) {
+    const source = await fs.readFile(path.join(boundaryDir, file), "utf8");
+    const context = { window: {} };
+    vm.createContext(context);
+    vm.runInContext(source, context);
+    const data = context.window.__BOUNDARY_DATA__ || {};
+    for (const geo of Object.values(data)) {
+      for (const feature of geo.features || []) {
+        const props = feature.properties || {};
+        index.set(String(props.adcode), feature);
+      }
+    }
+  }
+  return index;
+}
 
 const boundaryIndex = await loadBoundaryIndex();
 const geoOps = {
@@ -44,7 +71,7 @@ test("pickRandomImpactLngLat always returns a point inside the selected polygon"
   }
 });
 
-test("resolveDestination prefers curated destinations and samples them roughly uniformly", () => {
+test("resolveDestination samples OSM POIs for the adcode with roughly uniform weight", () => {
   const feature = boundaryIndex.get("110101");
   const region = {
     adcode: "110101",
@@ -53,26 +80,28 @@ test("resolveDestination prefers curated destinations and samples them roughly u
     centroid: feature.properties.centroid,
     feature,
   };
-  const curatedIndex = {
+  const poiIndex = {
     "110101": [
-      { id: "a", name: "A", adcode: "110101", lng: 116.397026, lat: 39.918058, kind: "landmark", summary: "A", sourceType: "curated" },
-      { id: "b", name: "B", adcode: "110101", lng: 116.403414, lat: 39.932161, kind: "scenic", summary: "B", sourceType: "curated" },
-      { id: "c", name: "C", adcode: "110101", lng: 116.417028, lat: 39.948747, kind: "landmark", summary: "C", sourceType: "curated" },
+      { id: "n1", name: "A", lng: 116.397026, lat: 39.918058, kind: "tourism.museum" },
+      { id: "n2", name: "B", lng: 116.403414, lat: 39.932161, kind: "tourism.attraction" },
+      { id: "n3", name: "C", lng: 116.417028, lat: 39.948747, kind: "amenity.restaurant" },
     ],
   };
-  const counts = { a: 0, b: 0, c: 0 };
+  const counts = { n1: 0, n2: 0, n3: 0 };
   const random = seededRandom(7);
 
   for (let i = 0; i < 3000; i++) {
-    counts[resolveDestination(region, curatedIndex, geoOps, random).id] += 1;
+    const destination = resolveDestination(region, poiIndex, geoOps, random);
+    assert.equal(destination.sourceType, "osm");
+    counts[destination.id] += 1;
   }
 
-  assert.ok(counts.a > 800 && counts.a < 1200);
-  assert.ok(counts.b > 800 && counts.b < 1200);
-  assert.ok(counts.c > 800 && counts.c < 1200);
+  assert.ok(counts.n1 > 800 && counts.n1 < 1200);
+  assert.ok(counts.n2 > 800 && counts.n2 < 1200);
+  assert.ok(counts.n3 > 800 && counts.n3 < 1200);
 });
 
-test("resolveDestination falls back to a safe in-polygon point when center is unusable", () => {
+test("resolveDestination falls back to a geometric random point when the adcode has no POI coverage", () => {
   const feature = turf.polygon([[
     [0, 0],
     [2, 0],
@@ -83,15 +112,23 @@ test("resolveDestination falls back to a safe in-polygon point when center is un
   const region = {
     adcode: "test",
     name: "测试区",
-    center: [3, 3],
-    centroid: [3, 3],
+    center: [1, 1],
+    centroid: [1, 1],
     feature,
   };
 
   const destination = resolveDestination(region, {}, geoOps, seededRandom(3));
-  assert.equal(destination.sourceType, "fallback");
-  assert.match(destination.name, /参考点/);
+  assert.equal(destination.sourceType, "random");
+  assert.match(destination.name, /随机落点/);
   assert.equal(pointInsideFeature(geoOps, [destination.lng, destination.lat], feature), true);
+});
+
+test("createFallbackDestination always returns the provided coordinate", () => {
+  const region = { adcode: "999999", name: "示例区" };
+  const dest = createFallbackDestination(region, [120.5, 30.5]);
+  assert.equal(dest.sourceType, "random");
+  assert.equal(dest.lng, 120.5);
+  assert.equal(dest.lat, 30.5);
 });
 
 test("pickRegionForCurrentDepth keeps province and city sampling uniform while honoring filters", () => {

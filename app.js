@@ -60,9 +60,8 @@ import {
   const boundaryPromises = new Map();
   const manifest = window.__BOUNDARY_MANIFEST__ || null;
   const statScheme = window.__STATISTICAL_REGION_SCHEME__ || null;
-  const destinationsLibrary = window.__DESTINATIONS__ || { byAdcode: Object.create(null) };
-  const curatedDestinationCount = Object.values(destinationsLibrary.byAdcode || {})
-    .reduce((sum, items) => sum + items.length, 0);
+  const poiShardCache = window.__POI_SHARDS__ || (window.__POI_SHARDS__ = Object.create(null));
+  const poiManifest = window.__POI_MANIFEST__ || null;
   const STAT_ORDER = statScheme ? statScheme.regionOrder.concat(['excluded']) : [];
   const STAT_META = statScheme ? {
     ...statScheme.regions,
@@ -444,6 +443,180 @@ import {
     return promise;
   }
 
+  // --- POI bundle loading (single tar.gz from GitHub Release) ---
+  // Dev: served from data/pois.tar.gz next to the HTML.
+  // Prod: falls back to the latest Release asset on the origin repo.
+  const POI_BUNDLE_URLS = [
+    'data/pois.tar.gz',
+    'https://github.com/Hor1zonZzz/map/releases/latest/download/pois.tar.gz',
+  ];
+
+  const poiBundleState = {
+    status: 'idle', // idle | loading | ready | error
+    progress: 0,
+    totalBytes: 0,
+    loadedBytes: 0,
+    errorMessage: '',
+  };
+  let poiBundlePromise = null;
+
+  function loadPoiShard(adcode) {
+    // All shards are pre-populated after the bundle is extracted. If the bundle
+    // hasn't arrived yet (or failed), this resolves to an empty array so the
+    // dart picker falls back to geometric random.
+    const key = String(adcode);
+    return Promise.resolve(poiShardCache[key] || []);
+  }
+
+  function parseTar(buffer) {
+    // Minimal USTAR reader: walks 512B records, extracts regular files only.
+    const view = new Uint8Array(buffer);
+    const decoder = new TextDecoder('utf-8');
+    const readAscii = (offset, length) => {
+      let end = offset;
+      while (end < offset + length && view[end] !== 0) end++;
+      return decoder.decode(view.subarray(offset, end));
+    };
+    const readOctal = (offset, length) => {
+      const raw = readAscii(offset, length).trim();
+      return raw ? parseInt(raw, 8) : 0;
+    };
+
+    const entries = [];
+    let cursor = 0;
+    while (cursor + 512 <= view.length) {
+      const header = view.subarray(cursor, cursor + 512);
+      // End-of-archive marker: two consecutive zero blocks
+      let allZero = true;
+      for (let i = 0; i < 512; i++) {
+        if (header[i] !== 0) { allZero = false; break; }
+      }
+      if (allZero) break;
+
+      const name = readAscii(cursor, 100);
+      const size = readOctal(cursor + 124, 12);
+      const typeFlag = view[cursor + 156];
+      cursor += 512;
+      if (name && (typeFlag === 0 || typeFlag === 0x30 /* '0' */)) {
+        entries.push({ name, payload: buffer.slice(cursor, cursor + size) });
+      }
+      cursor += size + ((512 - (size % 512)) % 512);
+    }
+    return entries;
+  }
+
+  async function fetchWithProgress(url, onProgress) {
+    const response = await fetch(url, { cache: 'force-cache' });
+    if (!response.ok) throw new Error(`${url} → HTTP ${response.status}`);
+    const contentLength = Number(response.headers.get('content-length')) || 0;
+    if (!response.body || !contentLength) {
+      const buffer = await response.arrayBuffer();
+      onProgress(buffer.byteLength, buffer.byteLength || 1);
+      return buffer;
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.length;
+      onProgress(received, contentLength);
+    }
+    const merged = new Uint8Array(received);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return merged.buffer;
+  }
+
+  async function decompressGzip(buffer) {
+    const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).arrayBuffer();
+  }
+
+  const SHARD_ARRAY_PATTERN = /window\.__POI_SHARDS__\[[^\]]+\]\s*=\s*(\[[\s\S]*\])\s*;?\s*$/m;
+
+  function populateShardsFromEntry(entry) {
+    // Each shard file is of the form:
+    //   window.__POI_SHARDS__ = window.__POI_SHARDS__ || Object.create(null);
+    //   window.__POI_SHARDS__["<adcode>"] = [ ... ];
+    // Extract the array literal with a regex anchored at the assignment site
+    // so the `[` inside the subscript doesn't fool us.
+    const adcodeMatch = entry.name.match(/^(\d+)\.js$/);
+    if (!adcodeMatch) return;
+    const text = new TextDecoder('utf-8').decode(entry.payload);
+    const match = text.match(SHARD_ARRAY_PATTERN);
+    if (!match) return;
+    try {
+      poiShardCache[adcodeMatch[1]] = JSON.parse(match[1]);
+    } catch (error) {
+      console.warn('shard parse failed', entry.name, error);
+    }
+  }
+
+  function updateBundleUi() {
+    const el = document.getElementById('poi-bundle-status');
+    if (!el) return;
+    if (poiBundleState.status === 'idle' || poiBundleState.status === 'loading') {
+      const pct = poiBundleState.totalBytes
+        ? Math.min(100, Math.round((poiBundleState.loadedBytes / poiBundleState.totalBytes) * 100))
+        : 0;
+      const received = (poiBundleState.loadedBytes / 1024 / 1024).toFixed(1);
+      const total = poiBundleState.totalBytes
+        ? ` / ${(poiBundleState.totalBytes / 1024 / 1024).toFixed(1)}`
+        : '';
+      el.textContent = `POI 数据加载中 · ${received}${total} MB (${pct}%)`;
+      el.classList.add('loading');
+      el.classList.remove('ready', 'error');
+    } else if (poiBundleState.status === 'ready') {
+      el.textContent = 'POI 数据已就绪（浏览器已缓存，下次打开无需再下载）';
+      el.classList.remove('loading', 'error');
+      el.classList.add('ready');
+    } else if (poiBundleState.status === 'error') {
+      el.textContent = `POI 数据加载失败：${poiBundleState.errorMessage} · 掷签将回退到几何随机点`;
+      el.classList.remove('loading', 'ready');
+      el.classList.add('error');
+    }
+    updateDartButtons();
+  }
+
+  async function loadPoiBundle() {
+    if (poiBundlePromise) return poiBundlePromise;
+    poiBundleState.status = 'loading';
+    updateBundleUi();
+
+    poiBundlePromise = (async () => {
+      let lastError = null;
+      for (const url of POI_BUNDLE_URLS) {
+        try {
+          const gz = await fetchWithProgress(url, (loaded, total) => {
+            poiBundleState.loadedBytes = loaded;
+            poiBundleState.totalBytes = total;
+            updateBundleUi();
+          });
+          const tar = await decompressGzip(gz);
+          const entries = parseTar(tar);
+          for (const entry of entries) populateShardsFromEntry(entry);
+          poiBundleState.status = 'ready';
+          updateBundleUi();
+          return;
+        } catch (error) {
+          lastError = error;
+          console.warn('POI bundle url failed', url, error.message);
+        }
+      }
+      poiBundleState.status = 'error';
+      poiBundleState.errorMessage = lastError?.message || '未知错误';
+      updateBundleUi();
+    })();
+
+    return poiBundlePromise;
+  }
+
   function fitProjection(geoJson) {
     const targetMinX = 90;
     const targetMinY = 40;
@@ -594,7 +767,7 @@ import {
         <label>半径范围 <span class="tool-value">${tool.radiusKm} km</span></label>
         <input type="range" id="radius-range" min="50" max="1200" step="10" value="${tool.radiusKm}">
       </div>
-      <div class="tool-meta">按“区域中心点是否落入半径”判断命中。飞镖会优先抽取圈内区域，但该工具当前仍是区域级筛选，不保证最终点位级精度。</div>
+      <div class="tool-meta">按“区域中心点是否落入半径”判断命中。签子会优先落在圈内区域，圈内无人时退回到当前可见区域。该工具是区域级筛选，不精确到 POI 级。</div>
     `;
 
     radiusToolEl.querySelector('#radius-place-btn').onclick = () => {
@@ -646,14 +819,18 @@ import {
     scopeNameEl.textContent = current.name;
     scopeMetaEl.textContent = currentDepth() < MAX_DEPTH
       ? `当前展示 ${unitLabel} · 点击区域继续下钻或查看详情`
-      : '当前展示区县单位 · 发射飞镖抽取区县内真实目的地点';
+      : '当前展示区县单位 · 掷签抽取区县内真实 POI';
     scopeCountEl.textContent = `${state.regions.length} 个${unitLabel}`;
 
+    const poiTotal = poiManifest?.totalPois || 0;
+    const poiLine = poiTotal > 0
+      ? `POI 数据 © OpenStreetMap · ${poiTotal.toLocaleString('zh-CN')} 条（ODbL）`
+      : 'POI 数据 © OpenStreetMap contributors（ODbL，待生成）';
     if (manifest) {
       dataSourceEl.textContent =
-        `本地静态镜像 · ${manifest.source.provider} · 边界生成于 ${formatTime(manifest.generatedAt)} · 精选点位 ${curatedDestinationCount} 个`;
+        `边界 · ${manifest.source.provider} · 生成于 ${formatTime(manifest.generatedAt)}｜${poiLine}`;
     } else {
-      dataSourceEl.textContent = `本地静态镜像 · 精选点位 ${curatedDestinationCount} 个`;
+      dataSourceEl.textContent = poiLine;
     }
 
     goUpBtn.disabled = state.stack.length <= 1;
@@ -665,7 +842,9 @@ import {
   }
 
   function destinationSourceLabel(sourceType) {
-    return sourceType === 'curated' ? '精选目的地' : '兜底参考点';
+    if (sourceType === 'osm') return 'OSM POI';
+    if (sourceType === 'random') return '区县内随机落点';
+    return '未知来源';
   }
 
   function buildDestinationPath(region) {
@@ -731,12 +910,14 @@ import {
       </div>
       <div class="destination-meta">所属路径：${destination.pathLabel}</div>
       <div class="destination-meta">经纬度：${formatCoords(destination.lng, destination.lat)}</div>
-      <div class="destination-summary">${destination.summary}</div>
+      ${destination.kind && destination.kind !== 'unknown' && destination.kind !== 'other'
+        ? `<div class="destination-meta">类型：${destination.kind}</div>`
+        : ''}
       <div class="destination-actions">
         <button class="destination-btn" id="copy-destination-coords">复制经纬度</button>
         <button class="destination-btn secondary" id="open-destination-amap">高德打开</button>
       </div>
-      <div class="destination-status">${state.destinationStatus || '最终结果为区县内目的地点，不再使用区县中心点作为旅游结果。'}</div>
+      <div class="destination-status">${state.destinationStatus || '等权从该区县的 OSM POI 中随机抽取；无 POI 覆盖时回退到区县内几何随机点。'}</div>
     `;
 
     destinationCard.querySelector('#copy-destination-coords').onclick = async () => {
@@ -828,11 +1009,11 @@ import {
   function renderLegend() {
     const unitLabel = getCurrentUnitLabel();
     legendEl.innerHTML = `
-      <b>图例 · 飞镖目的地</b>
+      <b>图例 · 掷签问地</b>
       <div>■ 当前层级：${unitLabel}</div>
       <div>■ 点击有子级的区域进入下一层</div>
-      <div>■ 到区县级后，飞镖会抽取区县内真实目的地点</div>
-      <div>■ 半径圈选仅按区域中心点筛选，不保证最终点位级精度</div>
+      <div>■ 到区县级后，掷签等权抽取 OSM POI</div>
+      <div>■ 无 POI 覆盖时回退到区县内几何随机点</div>
     `;
   }
 
@@ -840,7 +1021,7 @@ import {
     const levelLabel = CARD_LEVEL_LABELS[region.level] || '地区';
     const actionText = region.childrenNum > 0 && currentDepth() < MAX_DEPTH
       ? `点击可继续进入下一级 · 下辖 ${region.childrenNum} 个单位`
-      : '当前为区县层 · 发射飞镖抽取区县内真实目的地点';
+      : '当前为叶子区县 · 掷签抽取区县内 OSM POI';
     return `
       <h4>${region.name}</h4>
       <span class="tier-tag">${levelLabel}</span>
@@ -1126,8 +1307,9 @@ import {
   function updateDartButtons() {
     stopFireBtn.disabled = !state.continuousFire;
     const busy = state.continuousFire;
-    fireDartBtn.disabled = busy;
-    continuousFireBtn.disabled = busy || !state.regions.length || currentDepth() >= MAX_DEPTH;
+    const bundleLoading = poiBundleState.status === 'loading';
+    fireDartBtn.disabled = busy || bundleLoading;
+    continuousFireBtn.disabled = busy || bundleLoading || !state.regions.length || currentDepth() >= MAX_DEPTH;
   }
 
   function pickCurrentRegion() {
@@ -1141,12 +1323,13 @@ import {
     }, Math.random);
   }
 
-  function planDartTarget() {
+  async function planDartTarget() {
     if (!state.regions.length) return null;
     const region = pickCurrentRegion();
     if (!region) return null;
 
-    if (currentDepth() < MAX_DEPTH) {
+    const isLeaf = Number(region.childrenNum || 0) === 0 || currentDepth() >= MAX_DEPTH;
+    if (!isLeaf) {
       return {
         region,
         destination: null,
@@ -1154,7 +1337,8 @@ import {
       };
     }
 
-    const destination = resolveDestination(region, destinationsLibrary.byAdcode, geoOps, Math.random);
+    const shard = await loadPoiShard(region.adcode);
+    const destination = resolveDestination(region, { [region.adcode]: shard }, geoOps, Math.random);
     return {
       region,
       destination,
@@ -1162,15 +1346,15 @@ import {
     };
   }
 
-  function fireDart() {
+  async function fireDart() {
     if (state.finalDestination) {
       clearFinalDestination();
       renderDestinationCard();
       renderMap();
     }
 
-    const planned = planDartTarget();
-    if (!planned) return Promise.resolve(null);
+    const planned = await planDartTarget();
+    if (!planned) return null;
 
     const targetViewport = lngLatToViewport(planned.targetLngLat);
     const color = getRegionColor(planned.region);
@@ -1439,6 +1623,7 @@ import {
     renderLegend();
     renderDestinationCard();
     applyTransform();
+    loadPoiBundle(); // fire-and-forget; UI shows progress, dart buttons gated
 
     try {
       await openBoundary(ROOT_CODE, [{ code: ROOT_CODE, name: '全国' }]);

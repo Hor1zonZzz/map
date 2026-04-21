@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>华夏舆图 · 飞镖目的地 V2</title>
+  <title>华夏舆图 · 掷签问地</title>
   <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=5">
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
 </head>
@@ -13,7 +13,7 @@
 
   <div class="map-title">
     华夏舆图
-    <small>飞 镖 旅 行 · 从 行 政 区 到 真 实 目 的 地</small>
+    <small>掷 签 问 地 · 真 实 POI 随 机 抽 取</small>
   </div>
 
   <svg class="compass" viewBox="0 0 100 100">
@@ -50,9 +50,10 @@
     <div class="radius-tool" id="radius-tool"></div>
     <div class="hint-list">
       <div>单击区域：进入下一层</div>
-      <div>区县级：发射飞镖抽取真实目的地点</div>
+      <div>区县级：掷签从 OSM POI 随机抽</div>
       <div>滚轮缩放，拖拽平移</div>
     </div>
+    <div class="poi-bundle-status loading" id="poi-bundle-status">POI 数据加载中…</div>
     <div class="data-note" id="data-source">本地静态镜像</div>
   </div>
 
@@ -106,7 +107,7 @@
 
   <script src="data/statistical-regions.js"></script>
   <script src="data/boundary-manifest.js"></script>
-  <script src="data/destinations.js"></script>
-  <script type="module" src="app.js"></script>
+  <script src="data/pois-manifest.js" onerror="console.info('POI manifest not built yet; dart will use geometric-random fallback')"></script>
+  <script type="module" src="app.js?v=5"></script>
 </body>
 </html>

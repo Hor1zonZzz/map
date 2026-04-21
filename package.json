@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:destinations": "node scripts/build-destinations.mjs",
+    "build:boundaries": "node scripts/build-boundaries.mjs",
+    "build:pois": "node scripts/build-pois.mjs",
+    "package:pois": "node scripts/package-pois.mjs",
+    "fill:chinese-names": "node --env-file=.env scripts/fill-chinese-names.mjs",
     "test": "node --test"
   },
   "dependencies": {
-    "@turf/turf": "^7.2.0"
+    "@turf/turf": "^7.2.0",
+    "rbush": "^3.0.1"
   }
 }

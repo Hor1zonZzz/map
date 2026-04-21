@@ -1,2 +1,20 @@
 .DS_Store
 node_modules
+
+# POI build artifacts (regenerate via scripts/build-pois.mjs)
+data/raw/
+data/.pois-build/
+data/.regeo-progress.json
+
+# Per-district shards — distributed via GitHub Release, not git
+# (Run scripts/build-pois.mjs then scripts/package-pois.mjs to regenerate)
+data/pois/
+data/pois.tar.gz
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Claude Code / editor local state
+.claude/

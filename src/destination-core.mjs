@@ -68,34 +68,35 @@ export function pickRandomImpactLngLat(region, geoOps, random = Math.random, max
   return safePoint?.geometry?.coordinates || null;
 }
 
-export function createFallbackDestination(region, lngLat, mode) {
-  const isCenter = mode === "center";
+export function createFallbackDestination(region, lngLat) {
   return {
-    id: `${region.adcode}-${isCenter ? "center" : "reference"}`,
-    name: isCenter ? `${region.name} 行政中心附近` : `${region.name} 区县内参考点`,
+    id: `${region.adcode}-random`,
+    name: `${region.name} 区域内随机落点`,
     adcode: region.adcode,
     lng: Number(lngLat[0]),
     lat: Number(lngLat[1]),
-    kind: isCenter ? "urban" : "landmark",
-    summary: isCenter
-      ? "未配置精选点位，已回退到该区县行政中心附近。"
-      : "未配置精选点位，已回退到该区县内部参考点。",
-    sourceType: "fallback",
+    kind: "unknown",
+    sourceType: "random",
   };
 }
 
-export function resolveDestination(region, curatedIndex, geoOps, random = Math.random) {
-  const curated = curatedIndex?.[region.adcode];
-  if (Array.isArray(curated) && curated.length > 0) {
-    return pickRandomItem(curated, random);
+export function resolveDestination(region, poiIndex, geoOps, random = Math.random) {
+  const pois = poiIndex?.[region.adcode];
+  if (Array.isArray(pois) && pois.length > 0) {
+    const picked = pickRandomItem(pois, random);
+    return {
+      id: picked.id,
+      name: picked.name,
+      adcode: region.adcode,
+      lng: Number(picked.lng),
+      lat: Number(picked.lat),
+      kind: picked.kind || "unknown",
+      sourceType: "osm",
+    };
   }
 
-  if (Array.isArray(region.center) && pointInsideFeature(geoOps, region.center, region.feature)) {
-    return createFallbackDestination(region, region.center, "center");
-  }
-
-  const fallbackCoords = geoOps.pointOnFeature(region.feature)?.geometry?.coordinates || region.centroid || region.center;
-  return createFallbackDestination(region, fallbackCoords, "reference");
+  const fallbackCoords = pickRandomImpactLngLat(region, geoOps, random);
+  return createFallbackDestination(region, fallbackCoords || region.center || region.centroid || [0, 0]);
 }
 
 export function projectLngLatToScreen(projection, lngLat) {
