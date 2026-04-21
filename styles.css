@@ -707,20 +707,6 @@ body {
   filter: brightness(1.08) saturate(1.16);
 }
 
-.province-label {
-  font-family: 'Noto Serif SC', 'KaiTi', serif;
-  fill: var(--ink);
-  text-anchor: middle;
-  pointer-events: none;
-  font-weight: 700;
-  paint-order: stroke;
-  stroke: rgba(241, 228, 199, 0.85);
-  stroke-width: 3px;
-  letter-spacing: 0.5px;
-  transform: scale(calc(1 / var(--zoom, 1)));
-  transform-origin: 0 0;
-}
-
 .zoom-ctrl {
   position: fixed;
   right: 28px;

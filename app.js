@@ -672,16 +672,6 @@ import {
     return !!state.regionFilter[region.statGroup];
   }
 
-  function shouldRenderLabel(region) {
-    if (currentDepth() === 0) {
-      return region.areaEstimate > 1800;
-    }
-    if (currentDepth() === 1) {
-      return state.regions.length <= 24 || region.areaEstimate > 380;
-    }
-    return state.regions.length <= 12 || region.areaEstimate > 180;
-  }
-
   function getCurrentUnitLabel() {
     if (!state.currentData?.features?.length) return '地区';
     const level = state.currentData.features[0].properties.level || 'province';
@@ -973,6 +963,25 @@ import {
     const regionGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     regionGroup.setAttribute('id', 'regions');
 
+    const bindRegionInteractions = (target, region) => {
+      target.addEventListener('mouseenter', (event) => {
+        showInfoCard(region, event.clientX, event.clientY);
+      });
+      target.addEventListener('mouseleave', hideInfoCard);
+      target.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (state.radiusTool.placing) {
+          setRadiusAnchorFromClient(event.clientX, event.clientY);
+          return;
+        }
+        if (region.childrenNum > 0 && currentDepth() < MAX_DEPTH) {
+          await openBoundary(region.adcode, state.stack.concat([{ code: region.adcode, name: region.name }]));
+          return;
+        }
+        showInfoCard(region, event.clientX, event.clientY);
+      });
+    };
+
     state.regions.forEach((region) => {
       if (!isRegionFilteredIn(region)) return;
       const color = getRegionColor(region);
@@ -992,22 +1001,7 @@ import {
       topPath.setAttribute('fill', color);
       topPath.setAttribute('data-name', region.name);
       topPath.setAttribute('data-code', region.adcode);
-      topPath.addEventListener('mouseenter', (event) => {
-        showInfoCard(region, event.clientX, event.clientY);
-      });
-      topPath.addEventListener('mouseleave', hideInfoCard);
-      topPath.addEventListener('click', async (event) => {
-        event.stopPropagation();
-        if (state.radiusTool.placing) {
-          setRadiusAnchorFromClient(event.clientX, event.clientY);
-          return;
-        }
-        if (region.childrenNum > 0 && currentDepth() < MAX_DEPTH) {
-          await openBoundary(region.adcode, state.stack.concat([{ code: region.adcode, name: region.name }]));
-          return;
-        }
-        showInfoCard(region, event.clientX, event.clientY);
-      });
+      bindRegionInteractions(topPath, region);
       group.appendChild(topPath);
 
       const hatch = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1017,26 +1011,6 @@ import {
       hatch.setAttribute('pointer-events', 'none');
       hatch.setAttribute('opacity', '0.52');
       group.appendChild(hatch);
-
-      if (shouldRenderLabel(region)) {
-        const labelAnchor = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        labelAnchor.setAttribute('transform', `translate(${region.cx.toFixed(1)},${region.cy.toFixed(1)})`);
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', 0);
-        label.setAttribute('y', 0);
-        label.setAttribute('class', 'province-label');
-        const baseSize = currentDepth() === 0 ? 13 : currentDepth() === 1 ? 11 : 10;
-        const charW = baseSize * 0.95;
-        const estWidth = region.name.length * charW;
-        const maxWidth = region.bboxWidth * 0.85;
-        const finalSize = estWidth <= maxWidth
-          ? baseSize
-          : Math.max(7, Math.floor(maxWidth / (region.name.length * 0.95)));
-        label.setAttribute('font-size', String(finalSize));
-        label.textContent = region.name;
-        labelAnchor.appendChild(label);
-        group.appendChild(labelAnchor);
-      }
 
       regionGroup.appendChild(group);
     });
