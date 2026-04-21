@@ -1,6 +1,28 @@
+import {
+  createAmapUrl,
+  formatCoords,
+  pickRandomImpactLngLat,
+  pickRegionForCurrentDepth,
+  projectLngLatToScreen,
+  resolveDestination,
+} from './src/destination-core.mjs';
+
 // 华夏舆图 · 行政区划下钻版
 (function () {
   'use strict';
+
+  const d3 = window.d3;
+  const turf = window.turf;
+  if (!d3 || !turf) {
+    throw new Error('地图运行依赖缺失：需要先加载 d3 与 turf');
+  }
+
+  const geoOps = {
+    bbox: turf.bbox,
+    point: turf.point,
+    booleanPointInPolygon: turf.booleanPointInPolygon,
+    pointOnFeature: turf.pointOnFeature,
+  };
 
   const TWEAKS = /*EDITMODE-BEGIN*/{
     "colorTheme": "vintage"
@@ -38,6 +60,9 @@
   const boundaryPromises = new Map();
   const manifest = window.__BOUNDARY_MANIFEST__ || null;
   const statScheme = window.__STATISTICAL_REGION_SCHEME__ || null;
+  const destinationsLibrary = window.__DESTINATIONS__ || { byAdcode: Object.create(null) };
+  const curatedDestinationCount = Object.values(destinationsLibrary.byAdcode || {})
+    .reduce((sum, items) => sum + items.length, 0);
   const STAT_ORDER = statScheme ? statScheme.regionOrder.concat(['excluded']) : [];
   const STAT_META = statScheme ? {
     ...statScheme.regions,
@@ -56,6 +81,8 @@
     regions: [],
     darts: [],
     continuousFire: false,
+    finalDestination: null,
+    destinationStatus: '',
     regionFilter: STAT_ORDER.reduce((acc, k) => { acc[k] = true; return acc; }, {}),
     radiusTool: {
       placing: false,
@@ -103,6 +130,7 @@
   const wrap = document.getElementById('map-wrap');
   const loadingEl = document.getElementById('map-loading');
   const infoCard = document.getElementById('info-card');
+  const destinationCard = document.getElementById('destination-card');
   const scopeNameEl = document.getElementById('scope-name');
   const scopeMetaEl = document.getElementById('scope-meta');
   const scopeCountEl = document.getElementById('scope-count');
@@ -501,6 +529,7 @@
         center: props.center || null,
         centroid: props.centroid || null,
         acroutes: props.acroutes || [],
+        feature,
         rings,
         cx: centroid[0],
         cy: centroid[1],
@@ -565,7 +594,7 @@
         <label>半径范围 <span class="tool-value">${tool.radiusKm} km</span></label>
         <input type="range" id="radius-range" min="50" max="1200" step="10" value="${tool.radiusKm}">
       </div>
-      <div class="tool-meta">当前按“区域中心点是否落入半径”判断命中。飞镖会优先在圈内抽取，圈内为空时回退到当前可见区域。</div>
+      <div class="tool-meta">按“区域中心点是否落入半径”判断命中。飞镖会优先抽取圈内区域，但该工具当前仍是区域级筛选，不保证最终点位级精度。</div>
     `;
 
     radiusToolEl.querySelector('#radius-place-btn').onclick = () => {
@@ -615,21 +644,115 @@
     const current = state.stack[state.stack.length - 1];
     const unitLabel = getCurrentUnitLabel();
     scopeNameEl.textContent = current.name;
-    scopeMetaEl.textContent = `当前展示 ${unitLabel} · 点击区域继续下钻或查看详情`;
+    scopeMetaEl.textContent = currentDepth() < MAX_DEPTH
+      ? `当前展示 ${unitLabel} · 点击区域继续下钻或查看详情`
+      : '当前展示区县单位 · 发射飞镖抽取区县内真实目的地点';
     scopeCountEl.textContent = `${state.regions.length} 个${unitLabel}`;
 
     if (manifest) {
       dataSourceEl.textContent =
-        `本地静态镜像 · ${manifest.source.provider} · 生成于 ${formatTime(manifest.generatedAt)}`;
+        `本地静态镜像 · ${manifest.source.provider} · 边界生成于 ${formatTime(manifest.generatedAt)} · 精选点位 ${curatedDestinationCount} 个`;
     } else {
-      dataSourceEl.textContent = '本地静态镜像';
+      dataSourceEl.textContent = `本地静态镜像 · 精选点位 ${curatedDestinationCount} 个`;
     }
 
     goUpBtn.disabled = state.stack.length <= 1;
     goHomeBtn.disabled = state.stack.length <= 1;
     renderRegionFilter();
     renderRadiusTool();
+    renderDestinationCard();
     updateDartButtons();
+  }
+
+  function destinationSourceLabel(sourceType) {
+    return sourceType === 'curated' ? '精选目的地' : '兜底参考点';
+  }
+
+  function buildDestinationPath(region) {
+    return state.stack.slice(1).map((node) => node.name).concat(region.name).join(' / ');
+  }
+
+  function setDestinationStatus(text) {
+    state.destinationStatus = text || '';
+    renderDestinationCard();
+  }
+
+  async function copyToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    textarea.remove();
+  }
+
+  function clearFinalDestination() {
+    state.finalDestination = null;
+    state.destinationStatus = '';
+  }
+
+  function setFinalDestination(region, destination) {
+    state.finalDestination = {
+      ...destination,
+      regionAdcode: region.adcode,
+      regionName: region.name,
+      level: region.level,
+      pathLabel: buildDestinationPath(region),
+      amapUrl: createAmapUrl(destination.lng, destination.lat, destination.name),
+    };
+    state.destinationStatus = '';
+    renderDestinationCard();
+    renderMap();
+  }
+
+  function renderDestinationCard() {
+    if (!destinationCard) return;
+    const destination = state.finalDestination;
+    if (!destination) {
+      destinationCard.classList.add('hidden');
+      destinationCard.innerHTML = '';
+      return;
+    }
+
+    destinationCard.classList.remove('hidden');
+    destinationCard.innerHTML = `
+      <div class="destination-title">目 的 地</div>
+      <h3>${destination.name}</h3>
+      <div class="destination-tags">
+        <span class="destination-tag">${destinationSourceLabel(destination.sourceType)}</span>
+      </div>
+      <div class="destination-meta">所属路径：${destination.pathLabel}</div>
+      <div class="destination-meta">经纬度：${formatCoords(destination.lng, destination.lat)}</div>
+      <div class="destination-summary">${destination.summary}</div>
+      <div class="destination-actions">
+        <button class="destination-btn" id="copy-destination-coords">复制经纬度</button>
+        <button class="destination-btn secondary" id="open-destination-amap">高德打开</button>
+      </div>
+      <div class="destination-status">${state.destinationStatus || '最终结果为区县内目的地点，不再使用区县中心点作为旅游结果。'}</div>
+    `;
+
+    destinationCard.querySelector('#copy-destination-coords').onclick = async () => {
+      try {
+        await copyToClipboard(formatCoords(destination.lng, destination.lat));
+        setDestinationStatus('经纬度已复制，可直接发给同行或贴到地图应用。');
+      } catch (error) {
+        console.error(error);
+        setDestinationStatus('复制失败，请手动选取结果卡中的经纬度。');
+      }
+    };
+
+    destinationCard.querySelector('#open-destination-amap').onclick = () => {
+      window.open(destination.amapUrl, '_blank', 'noopener');
+      setDestinationStatus('已尝试打开高德标记页。');
+    };
   }
 
   function renderRegionFilter() {
@@ -705,11 +828,11 @@
   function renderLegend() {
     const unitLabel = getCurrentUnitLabel();
     legendEl.innerHTML = `
-      <b>图例 · 行政下钻</b>
+      <b>图例 · 飞镖目的地</b>
       <div>■ 当前层级：${unitLabel}</div>
       <div>■ 点击有子级的区域进入下一层</div>
-      <div>■ 到区县级后只显示详情，不再继续拆分</div>
-      <div>■ 半径圈选按区域中心点命中判断</div>
+      <div>■ 到区县级后，飞镖会抽取区县内真实目的地点</div>
+      <div>■ 半径圈选仅按区域中心点筛选，不保证最终点位级精度</div>
     `;
   }
 
@@ -717,7 +840,7 @@
     const levelLabel = CARD_LEVEL_LABELS[region.level] || '地区';
     const actionText = region.childrenNum > 0 && currentDepth() < MAX_DEPTH
       ? `点击可继续进入下一级 · 下辖 ${region.childrenNum} 个单位`
-      : '当前已到 V1 叶子层';
+      : '当前为区县层 · 发射飞镖抽取区县内真实目的地点';
     return `
       <h4>${region.name}</h4>
       <span class="tier-tag">${levelLabel}</span>
@@ -735,6 +858,46 @@
 
   function hideInfoCard() {
     infoCard.style.display = 'none';
+  }
+
+  function appendDestinationOverlay() {
+    if (!state.finalDestination) return;
+    const marker = projectLngLatToScreen(projection, [state.finalDestination.lng, state.finalDestination.lat]);
+    if (!Number.isFinite(marker.x) || !Number.isFinite(marker.y)) return;
+
+    const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    overlay.setAttribute('class', 'destination-overlay');
+    overlay.setAttribute('transform', `translate(${marker.x.toFixed(1)},${marker.y.toFixed(1)})`);
+
+    const halo = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    halo.setAttribute('class', 'destination-halo');
+    halo.setAttribute('r', '16');
+    overlay.appendChild(halo);
+
+    const pin = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    pin.setAttribute('class', 'destination-pin');
+    pin.setAttribute('r', '6.5');
+    overlay.appendChild(pin);
+
+    const labelBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    const labelWidth = Math.min(220, Math.max(92, state.finalDestination.name.length * 15));
+    labelBg.setAttribute('class', 'destination-label-bg');
+    labelBg.setAttribute('x', String(-labelWidth / 2));
+    labelBg.setAttribute('y', '-44');
+    labelBg.setAttribute('rx', '10');
+    labelBg.setAttribute('ry', '10');
+    labelBg.setAttribute('width', String(labelWidth));
+    labelBg.setAttribute('height', '24');
+    overlay.appendChild(labelBg);
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('class', 'destination-label');
+    label.setAttribute('x', '0');
+    label.setAttribute('y', '-28');
+    label.textContent = state.finalDestination.name;
+    overlay.appendChild(label);
+
+    MAP.appendChild(overlay);
   }
 
   function renderMap() {
@@ -823,6 +986,7 @@
     });
 
     MAP.appendChild(regionGroup);
+    appendDestinationOverlay();
 
     if (state.radiusTool.anchorScreen) {
       const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -870,6 +1034,7 @@
     showLoading(true, `边 界 装 载 中 · ${loadingName}`);
     hideInfoCard();
     clearDarts();
+    clearFinalDestination();
 
     try {
       const geoJson = await loadBoundaryData(code);
@@ -891,25 +1056,34 @@
   }
 
   function dartSVG(color) {
-    return `<svg width="70" height="70" viewBox="0 0 70 70">
+    const bamboo = '#d9b97a';
+    const bambooShade = '#a07a3c';
+    return `<svg width="60" height="90" viewBox="0 0 60 90">
       <defs><filter id="df" x="-20%" y="-20%" width="140%" height="140%">
         <feGaussianBlur stdDeviation="2"/></filter></defs>
-      <ellipse cx="35" cy="60" rx="12" ry="3" fill="rgba(0,0,0,0.3)" filter="url(#df)"/>
-      <line x1="35" y1="5" x2="35" y2="50" stroke="${darken(color, 0.4)}" stroke-width="3" stroke-linecap="round"/>
-      <path d="M35,5 L28,15 L35,12 L42,15 Z" fill="${color}" stroke="#3a2e1f" stroke-width="1"/>
-      <path d="M35,5 L30,10 L35,8 L40,10 Z" fill="${darken(color, 0.2)}" stroke="#3a2e1f" stroke-width="0.8"/>
-      <path d="M35,55 L31,48 L35,50 L39,48 Z" fill="#3a2e1f" stroke="#3a2e1f" stroke-width="1" stroke-linejoin="round"/>
+      <ellipse cx="30" cy="82" rx="10" ry="2.5" fill="rgba(0,0,0,0.32)" filter="url(#df)"/>
+      <rect x="26" y="6" width="8" height="64" fill="${bamboo}" stroke="#3a2e1f" stroke-width="0.8" rx="1"/>
+      <rect x="26" y="6" width="8" height="20" fill="${color}" stroke="#3a2e1f" stroke-width="0.8" rx="1"/>
+      <line x1="26" y1="30" x2="34" y2="30" stroke="${bambooShade}" stroke-width="0.7"/>
+      <line x1="26" y1="50" x2="34" y2="50" stroke="${bambooShade}" stroke-width="0.7"/>
+      <path d="M26,70 L30,82 L34,70 Z" fill="${bamboo}" stroke="#3a2e1f" stroke-width="0.8" stroke-linejoin="round"/>
+      <path d="M30,10 L30,22" stroke="${darken(color, 0.35)}" stroke-width="0.8" stroke-linecap="round"/>
     </svg>`;
   }
 
-  function regionToScreen(region) {
+  function mapPointToViewport(point) {
     const pt = MAP.createSVGPoint();
-    pt.x = region.cx;
-    pt.y = region.cy;
+    pt.x = point.x;
+    pt.y = point.y;
     const matrix = MAP.getScreenCTM();
     if (!matrix) return { x: 0, y: 0 };
     const screen = pt.matrixTransform(matrix);
     return { x: screen.x, y: screen.y };
+  }
+
+  function lngLatToViewport(lngLat) {
+    const mapPoint = projectLngLatToScreen(projection, lngLat);
+    return mapPointToViewport(mapPoint);
   }
 
   function screenToMap(clientX, clientY) {
@@ -956,21 +1130,50 @@
     continuousFireBtn.disabled = busy || !state.regions.length || currentDepth() >= MAX_DEPTH;
   }
 
-  function fireDart() {
-    if (!state.regions.length) return Promise.resolve(null);
-    const canDrill = currentDepth() < MAX_DEPTH;
-    const visible = state.regions.filter(isRegionFilteredIn);
-    const visibleSource = visible.length ? visible : state.regions;
-    const radiusPreferred = state.radiusTool.anchorLngLat
-      ? visibleSource.filter(isRegionWithinRadius)
-      : [];
-    const source = radiusPreferred.length ? radiusPreferred : visibleSource;
-    const pool = canDrill ? source.filter((r) => r.childrenNum > 0) : source;
-    const regions = pool.length ? pool : source;
-    const region = regions[Math.floor(Math.random() * regions.length)];
-    const dest = regionToScreen(region);
-    const color = getRegionColor(region);
+  function pickCurrentRegion() {
+    return pickRegionForCurrentDepth({
+      regions: state.regions,
+      currentDepth: currentDepth(),
+      maxDepth: MAX_DEPTH,
+      hasRadiusSelection: Boolean(state.radiusTool.anchorLngLat),
+      isRegionFilteredIn,
+      isRegionWithinRadius,
+    }, Math.random);
+  }
 
+  function planDartTarget() {
+    if (!state.regions.length) return null;
+    const region = pickCurrentRegion();
+    if (!region) return null;
+
+    if (currentDepth() < MAX_DEPTH) {
+      return {
+        region,
+        destination: null,
+        targetLngLat: pickRandomImpactLngLat(region, geoOps, Math.random, 300),
+      };
+    }
+
+    const destination = resolveDestination(region, destinationsLibrary.byAdcode, geoOps, Math.random);
+    return {
+      region,
+      destination,
+      targetLngLat: [destination.lng, destination.lat],
+    };
+  }
+
+  function fireDart() {
+    if (state.finalDestination) {
+      clearFinalDestination();
+      renderDestinationCard();
+      renderMap();
+    }
+
+    const planned = planDartTarget();
+    if (!planned) return Promise.resolve(null);
+
+    const targetViewport = lngLatToViewport(planned.targetLngLat);
+    const color = getRegionColor(planned.region);
     const side = Math.floor(Math.random() * 4);
     const W = window.innerWidth;
     const H = window.innerHeight;
@@ -984,15 +1187,15 @@
     const el = document.createElement('div');
     el.className = 'dart';
     el.innerHTML = dartSVG(color);
-    el.style.left = (sx - 35) + 'px';
-    el.style.top = (sy - 35) + 'px';
+    el.style.left = (sx - 30) + 'px';
+    el.style.top = (sy - 82) + 'px';
     el.style.opacity = '0';
     dartLayer.appendChild(el);
 
     const duration = 900;
     const startAngle = Math.random() * 720 - 360;
-    const dx = dest.x - sx;
-    const dy = dest.y - sy;
+    const dx = targetViewport.x - sx;
+    const dy = targetViewport.y - sy;
     const arc = -Math.min(200, Math.abs(dx) * 0.3 + 50);
     const midX = sx + dx * 0.5;
     const midY = sy + dy * 0.5 + arc;
@@ -1001,10 +1204,10 @@
     const N = 24;
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      const x = (1 - t) * (1 - t) * sx + 2 * (1 - t) * t * midX + t * t * dest.x;
-      const y = (1 - t) * (1 - t) * sy + 2 * (1 - t) * t * midY + t * t * dest.y;
-      const tx2 = 2 * (1 - t) * (midX - sx) + 2 * t * (dest.x - midX);
-      const ty2 = 2 * (1 - t) * (midY - sy) + 2 * t * (dest.y - midY);
+      const x = (1 - t) * (1 - t) * sx + 2 * (1 - t) * t * midX + t * t * targetViewport.x;
+      const y = (1 - t) * (1 - t) * sy + 2 * (1 - t) * t * midY + t * t * targetViewport.y;
+      const tx2 = 2 * (1 - t) * (midX - sx) + 2 * t * (targetViewport.x - midX);
+      const ty2 = 2 * (1 - t) * (midY - sy) + 2 * t * (targetViewport.y - midY);
       const heading = Math.atan2(ty2, tx2) * 180 / Math.PI + 90;
       const angle = t < 0.8
         ? (startAngle * (1 - t / 0.8) + heading * (t / 0.8))
@@ -1019,8 +1222,8 @@
 
     return new Promise((resolve) => {
       anim.onfinish = () => {
-        el.style.left = (dest.x - 35) + 'px';
-        el.style.top = (dest.y - 35) + 'px';
+        el.style.left = (targetViewport.x - 30) + 'px';
+        el.style.top = (targetViewport.y - 82) + 'px';
         el.style.transform = 'rotate(0deg) scale(1)';
         el.style.opacity = '1';
         anim.cancel();
@@ -1032,8 +1235,8 @@
         ], { duration: 400 });
         el.style.pointerEvents = 'auto';
         el.style.cursor = 'pointer';
-        el.title = '点击删除此飞镖';
-        const entry = { el, region };
+        el.title = '拾起这支签';
+        const entry = { el, region: planned.region, destination: planned.destination };
         el.addEventListener('click', (ev) => {
           ev.stopPropagation();
           el.remove();
@@ -1041,20 +1244,29 @@
           if (i !== -1) state.darts.splice(i, 1);
         });
         state.darts.push(entry);
-        resolve(region);
+        resolve({ ...planned, targetViewport });
       };
     });
   }
 
   async function fireAndDrill() {
-    const region = await fireDart();
-    if (!region) return null;
-    const screen = regionToScreen(region);
-    showInfoCard(region, screen.x, screen.y);
+    const result = await fireDart();
+    if (!result) return null;
+
+    if (result.destination) {
+      hideInfoCard();
+      setFinalDestination(result.region, result.destination);
+      return { drilled: false, destination: result.destination, region: result.region };
+    }
+
+    showInfoCard(result.region, result.targetViewport.x, result.targetViewport.y);
     await new Promise((resolve) => setTimeout(resolve, 900));
-    if (region.childrenNum > 0 && currentDepth() < MAX_DEPTH) {
-      await openBoundary(region.adcode, state.stack.concat([{ code: region.adcode, name: region.name }]));
-      return region;
+    if (result.region.childrenNum > 0 && currentDepth() < MAX_DEPTH) {
+      await openBoundary(
+        result.region.adcode,
+        state.stack.concat([{ code: result.region.adcode, name: result.region.name }]),
+      );
+      return { drilled: true, region: result.region };
     }
     return null;
   }
@@ -1065,9 +1277,9 @@
     updateDartButtons();
     try {
       while (state.continuousFire) {
-        const drilled = await fireAndDrill();
-        if (!drilled || !state.continuousFire) break;
-        if (currentDepth() >= MAX_DEPTH) break;
+        const outcome = await fireAndDrill();
+        if (!outcome || !state.continuousFire) break;
+        if (!outcome.drilled) break;
         await new Promise((resolve) => setTimeout(resolve, 450));
       }
     } finally {
@@ -1203,12 +1415,12 @@
 
   function setupGlobalClicks() {
     stage.addEventListener('click', (event) => {
-      if (state.radiusTool.placing && !event.target.closest('.controls, .legend, .tweaks, .zoom-ctrl, .info-card, .breadcrumb, .tweaks-toggle, .dart-panel')) {
+      if (state.radiusTool.placing && !event.target.closest('.controls, .legend, .tweaks, .zoom-ctrl, .info-card, .breadcrumb, .tweaks-toggle, .dart-panel, .destination-card')) {
         setRadiusAnchorFromClient(event.clientX, event.clientY);
         hideInfoCard();
         return;
       }
-      if (!event.target.closest('.province-top, .info-card')) {
+      if (!event.target.closest('.province-top, .info-card, .destination-card')) {
         hideInfoCard();
       }
     });
@@ -1225,6 +1437,7 @@
     updatePanels();
     renderBreadcrumb();
     renderLegend();
+    renderDestinationCard();
     applyTransform();
 
     try {

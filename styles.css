@@ -89,22 +89,71 @@ body {
   z-index: 10;
 }
 
-.breadcrumb {
+.breadcrumb-wrap {
   position: fixed;
-  top: 108px;
+  top: 104px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  max-width: min(78vw, 780px);
-  background: rgba(241, 228, 199, 0.92);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  box-shadow: 0 10px 24px rgba(40, 25, 10, 0.16);
-  backdrop-filter: blur(6px);
+  gap: 0;
   z-index: 12;
+  pointer-events: none;
+}
+
+.breadcrumb-tassel {
+  width: 18px;
+  height: 30px;
+  flex-shrink: 0;
+  background:
+    linear-gradient(180deg, #6b4626 0%, #5a3a1f 100%);
+  border: 1px solid var(--ink);
+  box-shadow: inset 0 0 0 2px rgba(241, 228, 199, 0.35);
+  position: relative;
+}
+
+.breadcrumb-tassel::before,
+.breadcrumb-tassel::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  background: var(--ink);
+}
+
+.breadcrumb-tassel::before {
+  top: -6px;
+  height: 6px;
+}
+
+.breadcrumb-tassel::after {
+  bottom: -6px;
+  height: 6px;
+}
+
+.breadcrumb-tassel.left {
+  border-right: none;
+}
+
+.breadcrumb-tassel.right {
+  border-left: none;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  max-width: min(78vw, 780px);
+  background:
+    linear-gradient(180deg, #f4e7ca 0%, #e8d4a8 100%);
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 235, 0.6),
+    0 8px 20px rgba(40, 25, 10, 0.2);
+  pointer-events: auto;
 }
 
 .crumb {
@@ -212,25 +261,52 @@ body {
 
 .panel-btn {
   flex: 1;
-  padding: 10px 12px;
-  border: none;
-  border-radius: 6px;
+  padding: 10px 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
   background: var(--ink);
   color: var(--paper);
-  font-family: 'Noto Serif SC', 'KaiTi', serif;
-  font-size: 12px;
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 13px;
+  letter-spacing: 2px;
   cursor: pointer;
-  transition: transform 0.12s ease, opacity 0.12s ease;
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--ink),
+    inset 0 0 0 2.5px var(--paper);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
 
 .panel-btn.secondary {
-  background: rgba(58, 46, 31, 0.1);
+  background: var(--paper);
   color: var(--ink);
-  border: 1px solid rgba(58, 46, 31, 0.18);
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--paper),
+    inset 0 0 0 2.5px var(--ink);
 }
 
 .panel-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
+  transform: translate(-1px, -1px);
+  box-shadow:
+    3px 3px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--ink),
+    inset 0 0 0 2.5px var(--paper);
+}
+
+.panel-btn.secondary:hover:not(:disabled) {
+  box-shadow:
+    3px 3px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--paper),
+    inset 0 0 0 2.5px var(--ink);
+}
+
+.panel-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow:
+    1px 1px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--ink),
+    inset 0 0 0 2.5px var(--paper);
 }
 
 .panel-btn:disabled {
@@ -296,7 +372,7 @@ body {
 .filter-count {
   font-size: 11px;
   color: var(--ink-faded);
-  font-family: 'Courier New', monospace;
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
 }
 
 .radius-tool {
@@ -381,7 +457,7 @@ body {
 
 .radius-tool .tool-value {
   float: right;
-  font-family: 'Courier New', monospace;
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
   font-size: 10px;
   color: var(--ink-soft);
 }
@@ -421,22 +497,29 @@ body {
   position: fixed;
   top: 340px;
   right: 28px;
-  padding: 8px 14px;
-  border: 1px solid var(--ink-soft);
+  padding: 10px 14px;
+  border: 1.5px solid var(--ink);
   border-radius: 2px;
   background: var(--paper);
   color: var(--ink);
   font-family: 'Ma Shan Zheng', 'KaiTi', serif;
   font-size: 14px;
-  letter-spacing: 2px;
+  letter-spacing: 4px;
   cursor: pointer;
-  box-shadow: 2px 2px 0 var(--ink-soft);
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 2px var(--paper),
+    inset 0 0 0 3px var(--ink);
   z-index: 12;
 }
 
 .tweaks-toggle.active {
   background: var(--ink);
   color: var(--paper);
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 2px var(--ink),
+    inset 0 0 0 3px var(--paper);
 }
 
 .tweaks {
@@ -472,7 +555,7 @@ body {
 
 .tweak-row .val {
   float: right;
-  font-family: 'Courier New', monospace;
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
   font-size: 10px;
   color: var(--ink-soft);
 }
@@ -546,13 +629,27 @@ body {
   display: none;
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(60, 40, 20, 0.18);
-  border-top-color: var(--ink);
+.ink-dots {
+  display: flex;
+  gap: 10px;
+}
+
+.ink-dots span {
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  animation: spin 0.9s linear infinite;
+  background: var(--ink);
+  box-shadow: inset -1px -1px 0 rgba(0, 0, 0, 0.25);
+  opacity: 0.35;
+  animation: ink-drop 1.2s ease-in-out infinite;
+}
+
+.ink-dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.ink-dots span:nth-child(3) {
+  animation-delay: 0.36s;
 }
 
 .loading-text {
@@ -563,9 +660,14 @@ body {
   text-shadow: 0 1px 0 rgba(255, 240, 200, 0.6);
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+@keyframes ink-drop {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
   }
 }
 
@@ -612,31 +714,60 @@ body {
   bottom: 28px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   z-index: 12;
 }
 
 .zoom-ctrl button {
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--ink-soft);
+  width: 40px;
+  height: 40px;
+  border: 1.5px solid var(--ink);
   border-radius: 2px;
   background: var(--paper);
   color: var(--ink);
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
   font-size: 18px;
+  letter-spacing: 0;
   cursor: pointer;
-  box-shadow: 1px 1px 0 var(--ink-soft);
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--paper),
+    inset 0 0 0 2.5px var(--ink);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.zoom-ctrl button:hover {
+  transform: translate(-1px, -1px);
+  box-shadow:
+    3px 3px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--paper),
+    inset 0 0 0 2.5px var(--ink);
+}
+
+.zoom-ctrl button:active {
+  transform: translate(1px, 1px);
+  box-shadow:
+    1px 1px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--paper),
+    inset 0 0 0 2.5px var(--ink);
+}
+
+.zoom-ctrl button.reset {
+  margin-top: 2px;
+  font-size: 15px;
+  background: rgba(58, 46, 31, 0.08);
 }
 
 .zoom-level {
-  padding: 4px 0;
+  padding: 5px 0;
   text-align: center;
-  background: rgba(241, 228, 199, 0.84);
-  border: 1px solid var(--ink-soft);
+  background: rgba(241, 228, 199, 0.9);
+  border: 1px solid var(--ink);
   border-radius: 2px;
-  font-family: 'Courier New', monospace;
-  font-size: 10px;
-  color: var(--ink-soft);
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--ink);
 }
 
 .dart-panel {
@@ -645,7 +776,8 @@ body {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
   padding: 10px 14px;
   background: linear-gradient(180deg, rgba(241, 228, 199, 0.96), rgba(230, 210, 168, 0.96));
   border: 1px solid var(--ink-soft);
@@ -657,6 +789,26 @@ body {
   z-index: 12;
 }
 
+.seal-mark {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #a33a2a;
+  color: #f4e7ca;
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
+  font-size: 18px;
+  border: 1.5px solid #7a1f12;
+  box-shadow:
+    inset 0 0 0 2px #a33a2a,
+    inset 0 0 0 3px #f4e7ca,
+    inset 0 0 0 4px #7a1f12,
+    2px 2px 0 rgba(0, 0, 0, 0.18);
+  transform: rotate(-3deg);
+  user-select: none;
+}
+
 .dart-btn {
   padding: 9px 16px;
   border: none;
@@ -665,7 +817,7 @@ body {
   color: var(--paper);
   font-family: 'Ma Shan Zheng', 'KaiTi', serif;
   font-size: 14px;
-  letter-spacing: 1px;
+  letter-spacing: 2px;
   cursor: pointer;
   box-shadow: 2px 2px 0 var(--ink-soft);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
@@ -736,6 +888,52 @@ body {
   stroke-linecap: round;
 }
 
+.destination-overlay {
+  pointer-events: none;
+}
+
+.destination-halo {
+  fill: rgba(163, 58, 42, 0.18);
+  stroke: rgba(122, 31, 18, 0.45);
+  stroke-width: 1.5;
+  animation: destination-pulse 1.8s ease-out infinite;
+}
+
+.destination-pin {
+  fill: #a33a2a;
+  stroke: #f7f0dc;
+  stroke-width: 2.2;
+}
+
+.destination-label-bg {
+  fill: rgba(241, 228, 199, 0.95);
+  stroke: var(--ink);
+  stroke-width: 1.2;
+}
+
+.destination-label {
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 12px;
+  text-anchor: middle;
+  fill: var(--ink);
+  font-weight: 700;
+}
+
+@keyframes destination-pulse {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.86);
+  }
+  70% {
+    opacity: 0.15;
+    transform: scale(1.22);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
+}
+
 .info-card {
   position: fixed;
   min-width: 208px;
@@ -778,6 +976,116 @@ body {
   color: var(--ink-soft);
 }
 
+.destination-card {
+  position: fixed;
+  right: 28px;
+  bottom: 118px;
+  width: 280px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, rgba(241, 228, 199, 0.98), rgba(230, 210, 168, 0.98));
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  box-shadow:
+    0 10px 26px rgba(40, 25, 10, 0.32),
+    inset 0 0 0 3px var(--paper),
+    inset 0 0 0 4px var(--ink-soft);
+  z-index: 15;
+}
+
+.destination-card.hidden {
+  display: none;
+}
+
+.destination-title {
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
+  font-size: 14px;
+  letter-spacing: 3px;
+  color: var(--ink);
+}
+
+.destination-card h3 {
+  margin-top: 6px;
+  font-family: 'Ma Shan Zheng', 'KaiTi', serif;
+  font-size: 22px;
+  letter-spacing: 2px;
+  color: var(--ink);
+}
+
+.destination-tags {
+  margin-top: 10px;
+}
+
+.destination-tag {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Noto Serif SC', serif;
+  font-size: 10px;
+}
+
+.destination-meta,
+.destination-summary,
+.destination-status {
+  font-family: 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+.destination-meta {
+  margin-top: 10px;
+}
+
+.destination-summary {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(58, 46, 31, 0.18);
+}
+
+.destination-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.destination-btn {
+  flex: 1;
+  padding: 9px 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'Ma Shan Zheng', 'Noto Serif SC', 'KaiTi', serif;
+  font-size: 13px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--ink),
+    inset 0 0 0 2.5px var(--paper);
+}
+
+.destination-btn.secondary {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow:
+    2px 2px 0 var(--ink-soft),
+    inset 0 0 0 1.5px var(--paper),
+    inset 0 0 0 2.5px var(--ink);
+}
+
+.destination-btn:hover {
+  transform: translate(-1px, -1px);
+}
+
+.destination-status {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(58, 46, 31, 0.18);
+}
+
 @keyframes card-in {
   from {
     opacity: 0;
@@ -799,6 +1107,10 @@ body {
   .tweaks {
     width: 210px;
   }
+
+  .destination-card {
+    width: 248px;
+  }
 }
 
 @media (max-width: 960px) {
@@ -819,6 +1131,13 @@ body {
   .map-title {
     top: 18px;
     font-size: 24px;
+  }
+
+  .destination-card {
+    right: 14px;
+    left: 14px;
+    bottom: 92px;
+    width: auto;
   }
 
   .zoom-ctrl {

@@ -2,17 +2,18 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>华夏舆图 · 省市区县下钻</title>
+  <title>华夏舆图 · 飞镖目的地 V2</title>
   <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
 </head>
 <body>
   <div class="paper"></div>
 
   <div class="map-title">
     华夏舆图
-    <small>省 市 区 县 · 本 地 边 界 下 钻</small>
+    <small>飞 镖 旅 行 · 从 行 政 区 到 真 实 目 的 地</small>
   </div>
 
   <svg class="compass" viewBox="0 0 100 100">
@@ -27,7 +28,11 @@
     <circle cx="50" cy="50" r="3" fill="#3a2e1f"/>
   </svg>
 
-  <div class="breadcrumb" id="breadcrumb"></div>
+  <div class="breadcrumb-wrap">
+    <span class="breadcrumb-tassel left"></span>
+    <div class="breadcrumb" id="breadcrumb"></div>
+    <span class="breadcrumb-tassel right"></span>
+  </div>
 
   <div class="controls">
     <h3>行 政 区 划</h3>
@@ -45,7 +50,7 @@
     <div class="radius-tool" id="radius-tool"></div>
     <div class="hint-list">
       <div>单击区域：进入下一层</div>
-      <div>区县级：停在 V1 叶子层</div>
+      <div>区县级：发射飞镖抽取真实目的地点</div>
       <div>滚轮缩放，拖拽平移</div>
     </div>
     <div class="data-note" id="data-source">本地静态镜像</div>
@@ -53,7 +58,7 @@
 
   <div class="legend" id="legend"></div>
 
-  <button class="tweaks-toggle" id="tweaks-toggle" title="打开调参面板">⚙ 调 参</button>
+  <button class="tweaks-toggle" id="tweaks-toggle" title="打开调参面板">调 格</button>
 
   <div class="tweaks" id="tweaks-panel">
     <h3>Tweaks · 调 参</h3>
@@ -71,32 +76,37 @@
     <div class="map-wrap" id="map-wrap">
       <svg class="map-svg" id="map-svg" viewBox="0 -40 1000 840" preserveAspectRatio="xMidYMid meet"></svg>
       <div class="map-loading" id="map-loading">
-        <div class="spinner"></div>
+        <div class="ink-dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
         <div class="loading-text">边 界 装 载 中 …</div>
       </div>
     </div>
   </div>
 
   <div class="zoom-ctrl">
-    <button id="zoom-in">＋</button>
+    <button id="zoom-in" title="放大">放</button>
     <div class="zoom-level" id="zoom-level">100%</div>
-    <button id="zoom-out">－</button>
-    <button id="zoom-reset" title="重置" style="margin-top:4px; font-size:12px;">⟲</button>
+    <button id="zoom-out" title="缩小">收</button>
+    <button id="zoom-reset" title="复位" class="reset">归</button>
   </div>
 
   <div class="info-card" id="info-card" style="display:none"></div>
+  <div class="destination-card hidden" id="destination-card"></div>
 
   <div class="dart-layer" id="dart-layer"></div>
 
   <div class="dart-panel">
-    <button class="dart-btn" id="fire-dart">🎯 发 射 飞 镖</button>
-    <button class="dart-btn" id="continuous-fire">⚡ 一 键 深 入</button>
-    <button class="dart-btn secondary" id="stop-fire" disabled>停 止</button>
-    <button class="dart-btn secondary" id="clear-darts">清 除</button>
+    <span class="seal-mark">朱</span>
+    <button class="dart-btn" id="fire-dart">掷 签 问 地</button>
+    <button class="dart-btn" id="continuous-fire">一 签 到 底</button>
+    <button class="dart-btn secondary" id="stop-fire" disabled>收 手</button>
+    <button class="dart-btn secondary" id="clear-darts">拾 签</button>
   </div>
 
   <script src="data/statistical-regions.js"></script>
   <script src="data/boundary-manifest.js"></script>
-  <script src="app.js"></script>
+  <script src="data/destinations.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -1,10 +1,12 @@
-# 华夏舆图 · 省市区县下钻版
+# 华夏舆图 · 飞镖目的地版
 
 ## 当前数据方案
 
 - 运行时不再直接请求第三方边界 API。
 - 边界数据通过 `scripts/build-boundaries.mjs` 预先下载到本地静态文件。
 - 前端运行时只加载 `data/boundaries/*.js`，按 `省 -> 市 -> 区县` 逐级懒加载。
+- 区县级结果不再返回区县中心，而是返回区县内真实目的地点。
+- 精选目的地点通过 `data/destinations.seed.json` 维护，再由构建脚本编译成浏览器可直接加载的 `data/destinations.js`。
 
 ## 数据来源
 
@@ -18,6 +20,10 @@
   记录生成时间、上游来源、文件数量。
 - `data/statistical-regions.js`
   国家统计局四大地区口径映射表：东部 / 中部 / 西部 / 东北。
+- `data/destinations.seed.json`
+  人工维护的精选目的地点原始数据。
+- `data/destinations.js`
+  运行时加载的精选目的地点静态模块。
 - `data/boundaries/100000_full.js`
   全国省级边界。
 - `data/boundaries/<省adcode>_full.js`
@@ -28,11 +34,21 @@
 ## 更新数据
 
 ```bash
+npm install
 node scripts/build-boundaries.mjs
+npm run build:destinations
+```
+
+## 测试
+
+```bash
+npm test
 ```
 
 ## 说明
 
-- V1 叶子层停在区县级，不继续拆到乡镇街道。
+- V2 叶子层仍停在区县级，不继续拆到乡镇街道。
+- 区县内若没有精选目的地点，会自动回退到区县行政中心附近或区县内安全参考点，保证全国都能产出结果。
+- 半径圈选当前仍是区域级筛选工具，不保证最终点位级精度。
 - 旧的手写“城市等级 / tier”数据已移除，避免和新的行政区划数据混用。
 - 国家统计局四大地区映射仅覆盖大陆 31 个省级行政区；香港、澳门、台湾在该口径下单独标记为未纳入。
