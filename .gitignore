@@ -6,10 +6,9 @@ data/raw/
 data/.pois-build/
 data/.regeo-progress.json
 
-# Per-district shards — distributed via GitHub Release, not git
-# (Run scripts/build-pois.mjs then scripts/package-pois.mjs to regenerate)
+# Per-district shards — only the packed tarball is committed; loose shards stay local.
+# (Run scripts/build-pois.mjs then scripts/package-pois.mjs to regenerate both.)
 data/pois/
-data/pois.tar.gz
 
 # Secrets — never commit
 .env
