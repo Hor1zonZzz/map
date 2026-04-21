@@ -61,6 +61,7 @@ import {
   const manifest = window.__BOUNDARY_MANIFEST__ || null;
   const statScheme = window.__STATISTICAL_REGION_SCHEME__ || null;
   const poiShardCache = window.__POI_SHARDS__ || (window.__POI_SHARDS__ = Object.create(null));
+  const poiShardPromises = new Map();
   const poiManifest = window.__POI_MANIFEST__ || null;
   const STAT_ORDER = statScheme ? statScheme.regionOrder.concat(['excluded']) : [];
   const STAT_META = statScheme ? {
@@ -443,178 +444,52 @@ import {
     return promise;
   }
 
-  // --- POI bundle loading (single tar.gz from GitHub Release) ---
-  // Dev: served from data/pois.tar.gz next to the HTML.
-  // Prod: falls back to the latest Release asset on the origin repo.
-  const POI_BUNDLE_URLS = [
-    'data/pois.tar.gz',
-    'https://github.com/Hor1zonZzz/map/releases/latest/download/pois.tar.gz',
-  ];
+  function poiShardPath(adcode) {
+    return `data/pois/${adcode}.js`;
+  }
 
-  const poiBundleState = {
-    status: 'idle', // idle | loading | ready | error
-    progress: 0,
-    totalBytes: 0,
-    loadedBytes: 0,
-    errorMessage: '',
-  };
-  let poiBundlePromise = null;
+  function hasPoiShard(adcode) {
+    if (!poiManifest) return false;
+    const shards = poiManifest.shards || poiManifest.byAdcode || {};
+    return Boolean(shards[String(adcode)]);
+  }
 
   function loadPoiShard(adcode) {
-    // All shards are pre-populated after the bundle is extracted. If the bundle
-    // hasn't arrived yet (or failed), this resolves to an empty array so the
-    // dart picker falls back to geometric random.
     const key = String(adcode);
-    return Promise.resolve(poiShardCache[key] || []);
-  }
-
-  function parseTar(buffer) {
-    // Minimal USTAR reader: walks 512B records, extracts regular files only.
-    const view = new Uint8Array(buffer);
-    const decoder = new TextDecoder('utf-8');
-    const readAscii = (offset, length) => {
-      let end = offset;
-      while (end < offset + length && view[end] !== 0) end++;
-      return decoder.decode(view.subarray(offset, end));
-    };
-    const readOctal = (offset, length) => {
-      const raw = readAscii(offset, length).trim();
-      return raw ? parseInt(raw, 8) : 0;
-    };
-
-    const entries = [];
-    let cursor = 0;
-    while (cursor + 512 <= view.length) {
-      const header = view.subarray(cursor, cursor + 512);
-      // End-of-archive marker: two consecutive zero blocks
-      let allZero = true;
-      for (let i = 0; i < 512; i++) {
-        if (header[i] !== 0) { allZero = false; break; }
-      }
-      if (allZero) break;
-
-      const name = readAscii(cursor, 100);
-      const size = readOctal(cursor + 124, 12);
-      const typeFlag = view[cursor + 156];
-      cursor += 512;
-      if (name && (typeFlag === 0 || typeFlag === 0x30 /* '0' */)) {
-        entries.push({ name, payload: buffer.slice(cursor, cursor + size) });
-      }
-      cursor += size + ((512 - (size % 512)) % 512);
+    if (poiShardCache[key]) {
+      return Promise.resolve(poiShardCache[key]);
     }
-    return entries;
-  }
-
-  async function fetchWithProgress(url, onProgress) {
-    const response = await fetch(url, { cache: 'force-cache' });
-    if (!response.ok) throw new Error(`${url} → HTTP ${response.status}`);
-    const contentLength = Number(response.headers.get('content-length')) || 0;
-    if (!response.body || !contentLength) {
-      const buffer = await response.arrayBuffer();
-      onProgress(buffer.byteLength, buffer.byteLength || 1);
-      return buffer;
+    if (poiShardPromises.has(key)) {
+      return poiShardPromises.get(key);
     }
-    const reader = response.body.getReader();
-    const chunks = [];
-    let received = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      received += value.length;
-      onProgress(received, contentLength);
+    if (!hasPoiShard(key)) {
+      poiShardCache[key] = [];
+      return Promise.resolve(poiShardCache[key]);
     }
-    const merged = new Uint8Array(received);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return merged.buffer;
-  }
 
-  async function decompressGzip(buffer) {
-    const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
-    return new Response(stream).arrayBuffer();
-  }
-
-  const SHARD_ARRAY_PATTERN = /window\.__POI_SHARDS__\[[^\]]+\]\s*=\s*(\[[\s\S]*\])\s*;?\s*$/m;
-
-  function populateShardsFromEntry(entry) {
-    // Each shard file is of the form:
-    //   window.__POI_SHARDS__ = window.__POI_SHARDS__ || Object.create(null);
-    //   window.__POI_SHARDS__["<adcode>"] = [ ... ];
-    // Extract the array literal with a regex anchored at the assignment site
-    // so the `[` inside the subscript doesn't fool us.
-    const adcodeMatch = entry.name.match(/^(\d+)\.js$/);
-    if (!adcodeMatch) return;
-    const text = new TextDecoder('utf-8').decode(entry.payload);
-    const match = text.match(SHARD_ARRAY_PATTERN);
-    if (!match) return;
-    try {
-      poiShardCache[adcodeMatch[1]] = JSON.parse(match[1]);
-    } catch (error) {
-      console.warn('shard parse failed', entry.name, error);
-    }
-  }
-
-  function updateBundleUi() {
-    const el = document.getElementById('poi-bundle-status');
-    if (!el) return;
-    if (poiBundleState.status === 'idle' || poiBundleState.status === 'loading') {
-      const pct = poiBundleState.totalBytes
-        ? Math.min(100, Math.round((poiBundleState.loadedBytes / poiBundleState.totalBytes) * 100))
-        : 0;
-      const received = (poiBundleState.loadedBytes / 1024 / 1024).toFixed(1);
-      const total = poiBundleState.totalBytes
-        ? ` / ${(poiBundleState.totalBytes / 1024 / 1024).toFixed(1)}`
-        : '';
-      el.textContent = `POI 数据加载中 · ${received}${total} MB (${pct}%)`;
-      el.classList.add('loading');
-      el.classList.remove('ready', 'error');
-    } else if (poiBundleState.status === 'ready') {
-      el.textContent = 'POI 数据已就绪（浏览器已缓存，下次打开无需再下载）';
-      el.classList.remove('loading', 'error');
-      el.classList.add('ready');
-    } else if (poiBundleState.status === 'error') {
-      el.textContent = `POI 数据加载失败：${poiBundleState.errorMessage} · 掷签将回退到几何随机点`;
-      el.classList.remove('loading', 'ready');
-      el.classList.add('error');
-    }
-    updateDartButtons();
-  }
-
-  async function loadPoiBundle() {
-    if (poiBundlePromise) return poiBundlePromise;
-    poiBundleState.status = 'loading';
-    updateBundleUi();
-
-    poiBundlePromise = (async () => {
-      let lastError = null;
-      for (const url of POI_BUNDLE_URLS) {
-        try {
-          const gz = await fetchWithProgress(url, (loaded, total) => {
-            poiBundleState.loadedBytes = loaded;
-            poiBundleState.totalBytes = total;
-            updateBundleUi();
-          });
-          const tar = await decompressGzip(gz);
-          const entries = parseTar(tar);
-          for (const entry of entries) populateShardsFromEntry(entry);
-          poiBundleState.status = 'ready';
-          updateBundleUi();
-          return;
-        } catch (error) {
-          lastError = error;
-          console.warn('POI bundle url failed', url, error.message);
+    const promise = new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = poiShardPath(key);
+      script.async = true;
+      script.dataset.poiAdcode = key;
+      script.onload = () => {
+        if (!Array.isArray(poiShardCache[key])) {
+          poiShardCache[key] = [];
         }
-      }
-      poiBundleState.status = 'error';
-      poiBundleState.errorMessage = lastError?.message || '未知错误';
-      updateBundleUi();
-    })();
+        resolve(poiShardCache[key]);
+      };
+      script.onerror = () => {
+        console.warn(`无法加载 POI 分片：${key}`);
+        poiShardCache[key] = [];
+        resolve(poiShardCache[key]);
+      };
+      document.head.appendChild(script);
+    }).finally(() => {
+      poiShardPromises.delete(key);
+    });
 
-    return poiBundlePromise;
+    poiShardPromises.set(key, promise);
+    return promise;
   }
 
   function fitProjection(geoJson) {
@@ -1307,9 +1182,8 @@ import {
   function updateDartButtons() {
     stopFireBtn.disabled = !state.continuousFire;
     const busy = state.continuousFire;
-    const bundleLoading = poiBundleState.status === 'loading';
-    fireDartBtn.disabled = busy || bundleLoading;
-    continuousFireBtn.disabled = busy || bundleLoading || !state.regions.length || currentDepth() >= MAX_DEPTH;
+    fireDartBtn.disabled = busy;
+    continuousFireBtn.disabled = busy || !state.regions.length || currentDepth() >= MAX_DEPTH;
   }
 
   function pickCurrentRegion() {
@@ -1623,7 +1497,6 @@ import {
     renderLegend();
     renderDestinationCard();
     applyTransform();
-    loadPoiBundle(); // fire-and-forget; UI shows progress, dart buttons gated
 
     try {
       await openBoundary(ROOT_CODE, [{ code: ROOT_CODE, name: '全国' }]);

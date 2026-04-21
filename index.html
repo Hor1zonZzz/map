@@ -53,7 +53,7 @@
       <div>区县级：掷签从 OSM POI 随机抽</div>
       <div>滚轮缩放，拖拽平移</div>
     </div>
-    <div class="poi-bundle-status loading" id="poi-bundle-status">POI 数据加载中…</div>
+    <div class="poi-bundle-status">POI 分片按区县懒加载；首次命中某区县时才会请求对应数据，缺失时回退到几何随机点。</div>
     <div class="data-note" id="data-source">本地静态镜像</div>
   </div>
 

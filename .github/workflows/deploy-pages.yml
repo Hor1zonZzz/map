@@ -1,0 +1,77 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build Pages artifact
+        run: node scripts/build-pages-dist.mjs --out dist
+
+      - name: Download deploy-only POI bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .pages-assets
+          gh release download pages-data \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "pages-pois.tar.gz" \
+            --dir .pages-assets \
+            --clobber
+
+      - name: Extract POI shards into artifact
+        run: |
+          mkdir -p dist/data
+          tar -xzf .pages-assets/pages-pois.tar.gz -C dist/data
+
+      - name: Verify Pages payload
+        run: |
+          test -f dist/index.html
+          test -f dist/app.js
+          test -f dist/styles.css
+          test -f dist/data/pois-manifest.js
+          test -d dist/data/boundaries
+          test -d dist/data/pois
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

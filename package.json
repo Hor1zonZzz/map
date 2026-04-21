@@ -6,8 +6,10 @@
   "scripts": {
     "build:boundaries": "node scripts/build-boundaries.mjs",
     "build:pois": "node scripts/build-pois.mjs",
-    "package:pois": "node scripts/package-pois.mjs",
+    "build:pages": "node scripts/build-pages-dist.mjs --out dist",
     "fill:chinese-names": "node --env-file=.env scripts/fill-chinese-names.mjs",
+    "package:pages-pois": "node scripts/package-pages-pois.mjs",
+    "publish:pages-pois": "node scripts/publish-pages-pois.mjs",
     "test": "node --test"
   },
   "dependencies": {

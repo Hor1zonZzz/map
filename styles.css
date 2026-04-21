@@ -483,25 +483,8 @@ body {
   letter-spacing: 0.5px;
   border-radius: 2px;
   border: 1px dashed rgba(58, 46, 31, 0.3);
-}
-
-.poi-bundle-status.loading {
   color: var(--ink-soft);
   background: rgba(255, 249, 238, 0.5);
-}
-
-.poi-bundle-status.ready {
-  color: var(--ink);
-  background: rgba(143, 149, 81, 0.18);
-  border-style: solid;
-  border-color: rgba(143, 149, 81, 0.6);
-}
-
-.poi-bundle-status.error {
-  color: #6e1a0f;
-  background: rgba(169, 58, 42, 0.15);
-  border-style: solid;
-  border-color: rgba(138, 40, 24, 0.7);
 }
 
 .legend {

@@ -6,9 +6,12 @@ data/raw/
 data/.pois-build/
 data/.regeo-progress.json
 
-# Per-district shards — only the packed tarball is committed; loose shards stay local.
-# (Run scripts/build-pois.mjs then scripts/package-pois.mjs to regenerate both.)
+# Per-district shards stay local by default to avoid repo bloat.
+# If you deploy with shard-level lazy loading, publish data/pois/ in the deploy artifact
+# (or remove this ignore rule and commit the shards).
 data/pois/
+.deploy/
+dist/
 
 # Secrets — never commit
 .env

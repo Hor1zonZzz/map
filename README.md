@@ -61,6 +61,40 @@ python3 -m http.server 8000
 
 浏览器打开 <http://localhost:8000>。若还没烘焙 POI 数据，掷签会自动回退到"区县内几何随机点"，UI 不会报错。
 
+## GitHub Pages 部署
+
+仓库默认**不提交** `data/pois/`，而是把它作为"部署专用资产"单独上传到固定 Release tag `pages-data`。GitHub Actions 在构建 Pages artifact 时会下载这个资产、解包到 `dist/data/pois/`，这样主分支保持轻量，但线上仍然提供按区县懒加载的真实 POI。
+
+首次配置 / 每次更新 POI 时：
+
+```bash
+# 1. 本地生成或刷新 shard
+npm run build:pois
+
+# 2. 打包部署专用 POI 资产（输出 .deploy/pages-pois.tar.gz）
+npm run package:pages-pois
+
+# 3. 上传到固定 Release tag: pages-data
+npm run publish:pages-pois
+```
+
+之后正常推送代码即可：
+
+```bash
+git push origin main
+```
+
+推送后，`.github/workflows/deploy-pages.yml` 会：
+1. 用仓库代码构建静态站 artifact
+2. 从 Release tag `pages-data` 下载 `pages-pois.tar.gz`
+3. 解包到 `dist/data/pois/`
+4. 上传 Pages artifact 并部署
+
+注意：
+- 如果你只改了前端代码、没改 POI 数据，只需要 `git push`。
+- 如果你改了 `data/pois/` 或重新跑了 `build:pois`，要先重新执行 `npm run package:pages-pois` 和 `npm run publish:pages-pois`，再推代码。
+- `pages-data` 是部署专用 Release，不影响运行时请求路径；线上仍然只从 GitHub Pages 站点请求 `data/pois/<adcode>.js`。
+
 ## 刷新 / 重建数据
 
 ### 边界
@@ -71,9 +105,9 @@ npm run build:boundaries
 
 不常改，DataV 接口变动时跑一次即可。
 
-### POI（首次烘焙 + 发布）
+### POI（首次烘焙 / 刷新）
 
-一次性下载 OSM 中国全量数据、提取 POI、按区县分片、打包发 GitHub Release。分片**不提交 git**（体积 ~440 MB），走 Release 分发（tarball ~73 MB）。
+一次性下载 OSM 中国全量数据、提取 POI、按区县分片。前端运行时只会在命中某个叶子区县时请求对应 `data/pois/<adcode>.js`，不会首屏预取全国数据。
 
 ```bash
 # 0. 安装 osmium-tool（本地一次）
@@ -95,34 +129,25 @@ osmium export data/raw/named.osm.pbf \
   -f geojsonseq \
   -o data/raw/pois.geojsonseq
 
-# 4. 按叶子区县分片（结果在 data/pois/，已 gitignore）
+# 4. 按叶子区县分片（结果在 data/pois/）
 npm run build:pois
-
-# 5. 打 tar.gz（结果 data/pois.tar.gz，也 gitignore）
-npm run package:pois
-
-# 6. 发 GitHub Release（tag 随便取，前端只认 "latest" asset）
-gh release create pois-v$(date +%Y%m%d) \
-  data/pois.tar.gz \
-  --title "POI bundle pois-v$(date +%Y%m%d)" \
-  --notes "Rebuilt from china-latest.osm.pbf, $(date +%Y-%m-%d). 4.7M POIs, 2,838 districts."
-
-# 刷新时（同一天重打）直接覆盖上一次：
-# gh release upload pois-vYYYYMMDD data/pois.tar.gz --clobber
 ```
 
 产物：
-- `data/pois/<adcode>.js` — 本地分片（**git 忽略**，只在本机开发时存在）
-- `data/pois.tar.gz` — 打包后的 Release 资产（**git 忽略**）
-- `data/pois-manifest.js` — 轻量清单（**进 git**，108 KB）
+- `data/pois/<adcode>.js` — 运行时按区县懒加载的分片
+- `data/pois-manifest.js` — 轻量清单（前端启动时读取）
 - `data/.pois-build/<adcode>.json` — 回填脚本用的中间 stash（git 忽略）
 
 前端加载逻辑（`app.js`）：
-1. 启动时 fire-and-forget 地请求 `data/pois.tar.gz`（本地开发时有这个文件）
-2. 404 时回退到 `https://github.com/Hor1zonZzz/map/releases/latest/download/pois.tar.gz`
-3. 用浏览器原生 `DecompressionStream('gzip')` 解压 + 内置 tar reader 解包
-4. 填充 `window.__POI_SHARDS__`，期间掷签按钮置灰显示进度条
-5. 成功后浏览器 HTTP 缓存持久化，下次秒开
+1. 启动时只加载 `data/pois-manifest.js`，不预取全量 POI
+2. 掷签命中叶子区县时，检查该 adcode 是否存在分片
+3. 若存在，就通过 `<script>` 懒加载 `data/pois/<adcode>.js`
+4. 同一分片在当前页面内只会加载一次；浏览器缓存命中时后续访问也不会重复下载
+5. 若分片缺失或加载失败，则回退到“区县内几何随机点”
+
+部署提示：
+- 如果你要托管到 GitHub Pages，仓库内置的 workflow 会在部署时自动把 Release tag `pages-data` 中的 `pages-pois.tar.gz` 解包进最终 artifact。
+- 如果你要托管到其它静态站，部署产物里同样必须包含 `data/pois/` 目录。
 
 ### 补齐缺失的中文名
 
